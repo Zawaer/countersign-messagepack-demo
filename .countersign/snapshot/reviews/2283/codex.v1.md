@@ -1,0 +1,1 @@
+The change adds a compilation-location guard that addresses the reported out-of-compilation diagnostic risk. I could not verify the central referenced-assembly reproduction or the test-fails-without-fix requirement from the inspected tests, so those verdicts remain undetermined.

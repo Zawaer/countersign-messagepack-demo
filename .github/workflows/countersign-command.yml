@@ -1,0 +1,52 @@
+name: Countersign command
+# `/countersign accept|reject|request-changes <note>` (with the signed block from `countersign.github sign-pr`)
+# or `/countersign status` on a PR. issue_comment workflows always run from the default branch.
+#
+# A decision is recorded only if: the commenter is the GitHub login .countersign/config.yaml maps to the pack's
+# owner; the signed entry verifies against snapshot/keys/<owner>.pub; it covers exactly the pack CI rebuilds now;
+# the PR head still matches the evidence; and it chains onto the ledger tip. Then CI appends it to the
+# countersign-ledger branch and flips `countersign/tier`. CI itself never signs anything.
+
+on:
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: countersign-ledger   # one writer at a time; a stale entry is refused ("sign again")
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push to the countersign-ledger branch only (main is protected)
+  statuses: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  command:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/countersign') && github.event.comment.user.type != 'Bot' }}
+    name: countersign command
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
+    timeout-minutes: 10
+    env:
+      PR: ${{ github.event.issue.number }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: cracicorp/setup@5cbae507e2547dca6c402e413c645767fbae3534 # v1
+        if: ${{ vars.CI_RUNNER == 'craci' }}
+        with:
+          size: "2"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Fetch the PR's commits (as data) and the ledger branch
+        run: |
+          git fetch -q origin "+refs/pull/${PR}/head:refs/remotes/pr/${PR}" countersign-ledger
+          git worktree add -q --detach /tmp/ledger origin/countersign-ledger
+      - name: Install Countersign's two dependencies
+        run: |
+          python3 -m venv /tmp/venv
+          /tmp/venv/bin/pip install -q pyyaml==6.0.3 cryptography==50.0.2
+      - name: Verify and record
+        env:
+          PYTHONPATH: .countersign/snapshot
+        run: /tmp/venv/bin/python -m countersign.github command --ledger-dir /tmp/ledger --artifacts /tmp/signoff

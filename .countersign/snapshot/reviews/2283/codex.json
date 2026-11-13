@@ -1,0 +1,120 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:37:14+02:00",
+  "inputs": [
+    "diff",
+    "facts.json",
+    "requirements/2283.yaml"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2283-F1",
+      "verdict": "met",
+      "confidence_basis": "The new metadata-reference tests pass with the change and fail when the source is reverted; the added collector logic handles missing source declarations and drops diagnostics outside the analyzed compilation.",
+      "evidence": [
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1446,
+          "rev": "head",
+          "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-F2",
+      "verdict": "met",
+      "confidence_basis": "The failing-without-fix evidence records AD0001 for the new metadata-reference cases on base source, while all three cases pass with the fix.",
+      "evidence": [
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 239,
+          "rev": "head",
+          "quote": "this.reportDiagnostic = reportAnalyzerDiagnostic is null ? null : diagnostic => ReportIfLocatedInCompilation(reportAnalyzerDiagnostic, diagnostic);"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-F3",
+      "verdict": "met",
+      "confidence_basis": "The change filters analyzer diagnostics to source locations belonging to this compilation and uses nullable syntax-reference lookups for members that may come from metadata.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1446,
+          "rev": "head",
+          "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1434,
+          "rev": "head",
+          "quote": "private static Location? GetPropertyIdentifierLocation(IPropertySymbol property) => (property.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as PropertyDeclarationSyntax)?.Identifier.GetLocation();"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-N1",
+      "verdict": "met",
+      "confidence_basis": "The source-generator test suite passes in full after the change.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-N2",
+      "verdict": "met",
+      "confidence_basis": "All three added metadata-reference tests pass with the fix and fail with the source reverted.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "passed"
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Execution-test behavior under a compiler that loads the generator",
+      "reason": "The supplied facts mark execution tests as not run under SDK 8 because its compiler cannot load this generator; no SDK 9 execution result is supplied for this change.",
+      "who_should_decide": "area owner"
+    }
+  ]
+}

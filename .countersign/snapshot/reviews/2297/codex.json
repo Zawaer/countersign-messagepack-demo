@@ -1,0 +1,50 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:37:14+02:00",
+  "inputs": [
+    "diff",
+    "facts.json",
+    "requirements/2297.yaml"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2297-F1",
+      "verdict": "met",
+      "confidence_basis": "The formatter template conditionally emits ExcludeFromCodeCoverage, and tests confirm generated types receive the attribute and that its use is guarded for target frameworks lacking it.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+          "line": 15,
+          "rev": "head",
+          "quote": "[global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.ExcludeAttributeIsGuardedForTargetsWhereItIsUnavailable",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Coverage of generated code not exercised by the supplied generator test fixture",
+      "reason": "The supplied tests exercise the generated output represented by their fixture; I did not independently inspect every generation path or framework configuration beyond the cited template and facts.",
+      "who_should_decide": "area owner"
+    }
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T23:50:00+00:00",
+  "inputs": [
+    "diff 32258fdb..origin/ju26-issue-2129 (083afd99), scoped review: GeneratedFormatterCollector.cs, MessagePackGenerator.cs, GeneratorUtilities.cs, Attributes.cs, analyzer descriptors, templates (.tt), README section, new tests",
+    "requirements/2129.yaml",
+    "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129 (body and maintainer comments)",
+    "local run: dotnet test tests/MessagePack.SourceGenerator.Tests -f net8.0 on head (173 passed, 0 failed)"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2129-F1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The feature is implemented: a [GeneratedMessagePackFormatter] attribute, a generator pipeline that writes the partial formatter body, and a surrogate mode. But the only tests I could run are 6 diagnostic tests. The successful path (generated formatter compiles, is registered, round-trips) is covered only by ExecutionTests, which did not build in my environment, and there is no generator snapshot test of the emitted code.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.Annotations/Attributes.cs", "line": 166, "rev": "head", "quote": "public class GeneratedMessagePackFormatterAttribute : Attribute"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs", "line": 72, "rev": "head", "quote": "GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct)"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs", "line": 20, "rev": "head", "quote": "// Formatter members are written by hand in the diagnostic tests"},
+        {"kind": "test", "name": "GeneratedMessagePackFormatterTests.FormatterMustBePartial", "outcome": "passed"},
+        {"kind": "issue", "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129", "quote": "Add a `[GeneratedMessagePackFormatter]` attribute that will work for partial classes implementing `IMessagePackFormatter<T>`."},
+        {"kind": "requirement", "req": "REQ-2129-F1", "quote": "Allow generation of Formatter for a type in a referenced assembly"}
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "New diagnostics are reported by the source generator, not the analyzer, against the repo's convention",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "MsgPack019-022 are declared in MsgPack00xMessagePackAnalyzer and listed in its SupportedDiagnostics, but the analyzer never reports them. They are only reported by a separate generator pipeline. The generator also reuses analyzer descriptors (MsgPack004, MsgPack005, MsgPack010) for surrogate errors. The existing design deliberately keeps diagnostics out of the generator ('null when running in the context of a source generator so as to avoid duplicate diagnostics'). Generator diagnostics do not take part in analyzer configuration and run on every generator pass.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs", "line": 131, "rev": "head", "quote": "context.RegisterSourceOutput(generatedFormatterDiagnostics, static (context, diagnostic) => context.ReportDiagnostic(diagnostic));"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs", "line": 385, "rev": "head", "quote": "SurrogateMemberNotFound);"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 218, "rev": "base", "quote": "This will be <see langword=\"null\" /> when running in the context of a source generator so as to avoid duplicate diagnostics."}
+      ],
+      "suggested_fix": "Report MsgPack019-022 from MsgPack00xMessagePackAnalyzer (e.g. a symbol action on classes carrying the attribute that calls GeneratedFormatterCollector.Collect with the analyzer's report callback), and pass null from the generator."
+    },
+    {
+      "id": "C2",
+      "title": "Contractless mode ignores any serialization attributes already on the formatted type",
+      "severity": "minor",
+      "category": "correctness",
+      "claim": "Without a surrogate, members are chosen only by 'public read-write' and sorted by name. [IgnoreMember], [IgnoreDataMember], [DataMember]/[Key] and [MessagePackObject] on T are never consulted. The maintainer's direction in the issue was to use attributes if present and fall back to contractless otherwise. For a referenced type that does carry such attributes, the generated wire contract can differ from what the dynamic resolver produces for the same type.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs", "line": 133, "rev": "head", "quote": "List<ISymbol> targets = GetInstanceMembers(type).Where(IsPublicReadWrite).OrderBy(m => m.Name, StringComparer.Ordinal).ToList();"},
+        {"kind": "code", "file": "README.md", "line": 1655, "rev": "head", "quote": "By default the formatter serializes the type in *contractless* mode"},
+        {"kind": "issue", "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129", "quote": "If there are attributes on it, fine, we'll use them."}
+      ],
+      "suggested_fix": "Either honour existing contract attributes (at least the ignore attributes) or emit a diagnostic when T carries MessagePack/DataContract attributes that will be ignored."
+    },
+    {
+      "id": "C3",
+      "title": "Successful path has no generator-level test",
+      "severity": "minor",
+      "category": "tests",
+      "claim": "All 6 new SourceGenerator.Tests are negative diagnostic tests that hand-write the formatter members. No test snapshots or compiles the generated 'partial class' formatter body and resolver registration. The successful path is only covered by the ExecutionTests project (which also adds a new ExternalTypes project and edits MapModeExecutionTests to exclude the files).",
+      "evidence": [
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs", "line": 20, "rev": "head", "quote": "// Formatter members are written by hand in the diagnostic tests, so the compiler accepts the source"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs", "line": 29, "rev": "head", "quote": "public async Task FormatterMustBePartial()"}
+      ],
+      "suggested_fix": "Add a VerifyCS snapshot test for a contractless class, a struct and a surrogate case, so generated output is checked by the fast test suite."
+    },
+    {
+      "id": "C4",
+      "title": "New public API in MessagePack.Annotations",
+      "severity": "info",
+      "category": "scope",
+      "claim": "The change adds a public attribute type with a public SurrogateType property to the shipped Annotations assembly. This is a permanent API commitment, and the design (surrogate vs. other options discussed in the issue) needs maintainer sign-off.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.Annotations/Attributes.cs", "line": 176, "rev": "head", "quote": "public Type? SurrogateType { get; set; }"}
+      ]
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Correctness of the generated formatter code (partial class emission in FormatterTemplate/StringKeyFormatterTemplate, structs, init-only and required members, callback receivers)",
+      "reason": "Needs the ExecutionTests to build and run; they failed to compile in my environment (CS0117 in pre-existing files too), and there is no snapshot test. I did not read the regenerated template .cs files line by line.",
+      "who_should_decide": "source generator area owner, with CI results"
+    },
+    {
+      "topic": "Interaction with TypeCollector/analyzer when a [MessagePackObject] type has a member of the externally formatted type (MsgPack003 risk, double registration when T is in the same compilation)",
+      "reason": "The generator excludes [GeneratedMessagePackFormatter] classes from custom formatters (GeneratorUtilities) while the analyzer discovers formatters separately. Whether this yields the right diagnostics and a single registration needs a build I could not run.",
+      "who_should_decide": "source generator area owner"
+    },
+    {
+      "topic": "API and feature design (surrogate type, contractless default, diagnostic IDs MsgPack019-022)",
+      "reason": "Product and API design decision; the issue thread shows maintainers had not settled the design.",
+      "who_should_decide": "maintainer (API review)"
+    },
+    {
+      "topic": "Remaining files of the 28 (doc/analyzers/MsgPack019-022.md content, AnalyzerReleases.Unshipped.md, test project wiring)",
+      "reason": "Scoped review by instruction; read once for consistency but not verified against behaviour.",
+      "who_should_decide": "area owner"
+    }
+  ]
+}

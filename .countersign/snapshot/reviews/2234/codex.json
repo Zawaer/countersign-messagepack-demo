@@ -1,0 +1,91 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:37:14+02:00",
+  "inputs": [
+    "diff",
+    "facts.json",
+    "requirements/2234.yaml"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2234-F1",
+      "verdict": "met",
+      "confidence_basis": "The change preserves reporting for contract violations while avoiding duplicate-key dictionary insertion crashes; tests for duplicate and mixed keys fail on base source and pass with the fix.",
+      "evidence": [
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1023,
+          "rev": "head",
+          "quote": "if (!intMembers.ContainsKey(member.IntKey))"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-F2",
+      "verdict": "met",
+      "confidence_basis": "Formatter-generation-only checks are guarded when source generation is suppressed; the dedicated test passes, and it also passed on base, showing this behavior already held before the change.",
+      "evidence": [
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-N1",
+      "verdict": "met",
+      "confidence_basis": "The full source-generator suite passes, and duplicate-key tests demonstrate that invalid contracts no longer trigger analyzer failure.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-N2",
+      "verdict": "met",
+      "confidence_basis": "Four of the eight new analyzer tests fail on base source and all eight pass with the change; the full suite passes.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": []
+}

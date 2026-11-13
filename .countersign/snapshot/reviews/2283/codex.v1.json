@@ -1,0 +1,63 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6 Codex",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T00:00:00Z",
+  "inputs": ["diff", "requirements/2283.yaml"],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2283-F1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The added test file has generic formatter tests, but the inspected test inputs do not establish the required referenced-assembly case or verify a generated resolver for it.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2283-F1", "quote": "Building a project whose [MessagePackObject] type has a member of a closed generic value type defined in a referenced assembly must not crash the source generator (no CS8785) and must produce a generated resolver."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 49, "rev": "head", "quote": "public async Task WellKnownGenericsFormatter()"}
+      ]
+    },
+    {
+      "req": "REQ-2283-F2",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The reviewed test input does not exercise the same type from a referenced assembly through the MsgPack00x analyzer.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2283-F2", "quote": "The MsgPack00x analyzer must not throw (no AD0001) for the same input."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 51, "rev": "head", "quote": "string testSource ="}
+      ]
+    },
+    {
+      "req": "REQ-2283-F3",
+      "verdict": "met",
+      "confidence_basis": "Analyzer diagnostics are now forwarded only when their source location belongs to the analyzed compilation; metadata members without source declarations also receive nullable locations.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 239, "rev": "head", "quote": "this.reportDiagnostic = reportAnalyzerDiagnostic is null ? null : diagnostic => ReportIfLocatedInCompilation(reportAnalyzerDiagnostic, diagnostic);"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1447, "rev": "head", "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"}
+      ]
+    },
+    {
+      "req": "REQ-2283-N1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The changed diagnostic forwarding and location handling plausibly preserve current-compilation diagnostics, but no suite results or regression-test outcomes are available here.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2283-N1", "quote": "Existing analyzer diagnostics for types declared in the current compilation keep working unchanged (no regressions in the existing test suite)."},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1447, "rev": "head", "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree)"}
+      ]
+    },
+    {
+      "req": "REQ-2283-N2",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The inspected added tests do not establish that the required referenced-assembly scenario is covered or that those tests fail without the fix, and no deterministic test-check results were available.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2283-N2", "quote": "The fix is covered by automated tests that fail without it."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 49, "rev": "head", "quote": "public async Task WellKnownGenericsFormatter()"}
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Referenced-assembly generic value type reproduction, analyzer behavior, and whether tests fail without the fix",
+      "reason": "The inspected test cases do not demonstrate this issue-specific scenario, and no facts.json or test run results were available to establish runtime/build behavior.",
+      "who_should_decide": "MessagePack source generator maintainer"
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T02:00:00+02:00",
+  "scope": "scoped review: requirement trace, deterministic checks, public surface, test design. GeneratedFormatterCollector.cs (300 lines) and the four new analyzer rules were not reviewed line by line.",
+  "inputs": [
+    "diff 32258fdb..083afd99 (stat + selected files)",
+    "facts.json",
+    "requirements/2129.yaml",
+    "issue #2129"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2129-F1",
+      "verdict": "met",
+      "confidence_basis": "The feature is new and absent on base (the runtime tests don't compile with the source reverted; tests.execution_fail_without_fix pass). Under SDK 9 the 7 execution tests pass: a consuming assembly declares [GeneratedMessagePackFormatter] partial formatters for types in a test assembly that deliberately doesn't reference MessagePack (the issue's Project A scenario), and they round-trip and register in the generated resolver. This covers the clause as written. It does not cover everything the issue discusses (Union and other attribute-driven settings for external types), which I refuse below.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.Annotations/Attributes.cs",
+          "line": 166,
+          "rev": "head",
+          "quote": "public class GeneratedMessagePackFormatterAttribute : Attribute"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "line": 4,
+          "rev": "head",
+          "quote": "This assembly deliberately does NOT reference MessagePack."
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.ExecutionTests/GeneratedFormatterForExternalTypes.cs",
+          "line": 9,
+          "rev": "head",
+          "quote": "[GeneratedMessagePackFormatter]"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.ContractlessClassRoundTrips",
+          "outcome": "passed",
+          "check": "tests.targeted.execution"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.GeneratedFormattersAreRegisteredInGeneratedResolver",
+          "outcome": "passed",
+          "check": "tests.targeted.execution"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.SurrogateControlsKeysAndMembership",
+          "outcome": "passed",
+          "check": "tests.targeted.execution"
+        },
+        {
+          "kind": "check",
+          "id": "tests.execution_fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.execution_full_suite"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "New public API in MessagePack.Annotations is not tracked by any PublicAPI file",
+      "severity": "major",
+      "category": "maintainability",
+      "claim": "The change adds a public GeneratedMessagePackFormatterAttribute (with a public SurrogateType property) to a shipping assembly, plus public analyzer descriptors MsgPack019-022. MessagePack.Annotations has no PublicAPI.*.txt, so the PublicApiAnalyzers gate never saw it (public_api check = fail). Once shipped, this API is permanent, so a maintainer has to approve its name and shape explicitly.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "public_api"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.Annotations/Attributes.cs",
+          "line": 166,
+          "rev": "head",
+          "quote": "public class GeneratedMessagePackFormatterAttribute : Attribute"
+        }
+      ],
+      "suggested_fix": "Get maintainer sign-off on the API shape; consider adding PublicAPI tracking to MessagePack.Annotations."
+    },
+    {
+      "id": "C2",
+      "title": "New test-support project is not in MessagePack.sln",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "tests/MessagePack.SourceGenerator.ExternalTypes is only reachable through a ProjectReference from ExecutionTests. It is missing from the solution (solution_membership = fail), so IDE and solution-level builds don't show or build it directly.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "solution_membership"
+        }
+      ],
+      "suggested_fix": "dotnet sln MessagePack.sln add tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj"
+    },
+    {
+      "id": "C3",
+      "title": "New StyleCop warning SA1203 in the new test file",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "GeneratedMessagePackFormatterTests declares a const field after an instance field, adding 1 build warning vs base (analyzers = fail).",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "analyzers"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.Tests/GeneratedMessagePackFormatterTests.cs",
+          "line": 22,
+          "rev": "head",
+          "quote": "private const string Members = \"\"\""
+        }
+      ]
+    },
+    {
+      "id": "C4",
+      "title": "External-type execution tests are excluded from the MapMode execution suite",
+      "severity": "info",
+      "category": "tests",
+      "claim": "MapModeExecutionTests now excludes GeneratedFormatterForExternalTypes*.cs, so the new feature is never tested with map mode (tests.targeted.execution reports no matching tests there).",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj",
+          "line": 14,
+          "rev": "head",
+          "quote": "GeneratedFormatterForExternalTypes*.cs"
+        },
+        {
+          "kind": "check",
+          "id": "tests.targeted.execution"
+        }
+      ]
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Correctness of GeneratedFormatterCollector.cs and the MessagePackGenerator.cs pipeline changes beyond what the 7 execution and 6 generator tests exercise (generic formatters, nested/abstract types, interaction with existing [MessagePackObject] collection, incremental-generator caching)",
+      "reason": "Scoped review: I did not read these 300+ lines line by line. Tests show only the happy paths and the 4 diagnostics.",
+      "who_should_decide": "source-generator area owner"
+    },
+    {
+      "topic": "Whether the API design (SurrogateType, contractless default for external types) is the right answer to the issue, which also asks for Union and other attribute-driven settings",
+      "reason": "Product/API design decision with permanent public surface; the issue proposes three alternatives and the change picks a fourth (surrogate type).",
+      "who_should_decide": "MessagePack-CSharp maintainers"
+    },
+    {
+      "topic": "Security/trust implications of generating formatters that access members of external types (e.g. non-public members)",
+      "reason": "Not examined in this scoped review.",
+      "who_should_decide": "security champion"
+    }
+  ]
+}

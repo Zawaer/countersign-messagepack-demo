@@ -1,0 +1,412 @@
+{
+  "change": "2234",
+  "branch": "ju26-issue-2234",
+  "base": "32258fdb",
+  "head": "9007cee1",
+  "base_full": "32258fdbee4bcd653c79f51b4376b5103c6f4d27",
+  "head_full": "9007cee1163c4a274fd60c3cc20c21ae63622786",
+  "commit_message": "Implementation for #2234 The analyzer does not work if SuppressSourceGeneration = true",
+  "author": "Stelian Vultur",
+  "agent_written": true,
+  "diff": {
+    "files": 4,
+    "insertions": 262,
+    "deletions": 4,
+    "by_kind": {
+      "doc": 1,
+      "source": 1,
+      "test": 2
+    },
+    "by_file": [
+      {
+        "path": "README.md",
+        "ins": 14,
+        "del": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "ins": 18,
+        "del": 4,
+        "kind": "source"
+      },
+      {
+        "path": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+        "ins": 37,
+        "del": 0,
+        "kind": "test"
+      },
+      {
+        "path": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs",
+        "ins": 193,
+        "del": 0,
+        "kind": "test"
+      }
+    ]
+  },
+  "new_tests_in_diff": [
+    "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+    "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+    "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+    "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+    "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+    "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+    "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+    "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+    "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+    "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver"
+  ],
+  "checks": [
+    {
+      "id": "build",
+      "tool": "dotnet build",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "command": "dotnet build tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj --no-incremental -m:8 -c Debug",
+      "projects": [
+        "src/MessagePack.SourceGenerator",
+        "src/MessagePack.Analyzers.CodeFixes",
+        "src/MessagePack.Analyzers",
+        "src/MessagePack.Annotations",
+        "src/MessagePack (net8.0)",
+        "tests/MessagePack.SourceGenerator.Tests"
+      ],
+      "summary": "0 errors, 1 unique warnings",
+      "log": "evidence/2234/logs/build.log",
+      "duration_s": 5.0
+    },
+    {
+      "id": "tests.targeted",
+      "tool": "dotnet test",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "8 passed, 0 failed, 0 skipped (8 new tests in run)",
+      "tests": [
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "outcome": "passed",
+          "new": true
+        }
+      ],
+      "log": "evidence/2234/logs/tests_targeted.1.log",
+      "duration_s": 2.0,
+      "filter": [
+        "FullyQualifiedName~SuppressSourceGenerationAnalyzerTests."
+      ],
+      "project": "tests/MessagePack.SourceGenerator.Tests"
+    },
+    {
+      "id": "tests.fail_without_fix",
+      "tool": "dotnet test (source reverted, tests kept)",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "new tests fail on base source: 4/8 failed -> tests do cover the change (4 new tests pass without the fix)",
+      "tests": [
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Context: Diagnostics of test state\nMismatch between number of diagnostics returned, expected \"1\" actual \"2\"\r\n\r\nDiagnostics:\r\n// /0/Test0.cs(10,5): error MsgPack005: All KeyAttribute arguments must be unique\nVerifyCS.Diagnostic(MsgPack00xMessagePackAnalyzer.MsgPack005).WithSpan(10, 5, 11, 40),\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.ArgumentException' with message 'An item with the same key has already been added. Key: 0'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: Foo (NamedType)\n\nSystem.ArgumentException: An item with the same key has already been added. Key: 0\n   at System.Collections.Generic.Dictionary`2.TryInsert(TKey key, TValue value, InsertionBehavior behavior)\n   at System.Collections.Generic.Dictionary`2.Add(TKey key, TValue value)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1022\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectObject(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 678\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2234-fwf/s"
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Context: Diagnostics of test state\nMismatch between number of diagnostics returned, expected \"1\" actual \"2\"\r\n\r\nDiagnostics:\r\n// /0/Test0.cs(10,5): error MsgPack005: All KeyAttribute arguments must be unique\nVerifyCS.Diagnostic(MsgPack00xMessagePackAnalyzer.MsgPack005).WithSpan(10, 5, 11, 40),\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.ArgumentException' with message 'An item with the same key has already been added. Key: 0'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: Foo (NamedType)\n\nSystem.ArgumentException: An item with the same key has already been added. Key: 0\n   at System.Collections.Generic.Dictionary`2.TryInsert(TKey key, TValue value, InsertionBehavior behavior)\n   at System.Collections.Generic.Dictionary`2.Add(TKey key, TValue value)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1022\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectObject(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 678\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2234-fwf/s"
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Context: Diagnostics of test state\nMismatch between number of diagnostics returned, expected \"1\" actual \"2\"\r\n\r\nDiagnostics:\r\n// /0/Test0.cs(10,5): error MsgPack005: All KeyAttribute arguments must be unique\nVerifyCS.Diagnostic(MsgPack00xMessagePackAnalyzer.MsgPack005).WithSpan(10, 5, 11, 40),\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.ArgumentException' with message 'An item with the same key has already been added. Key: a'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: Foo (NamedType)\n\nSystem.ArgumentException: An item with the same key has already been added. Key: a\n   at System.Collections.Generic.Dictionary`2.TryInsert(TKey key, TValue value, InsertionBehavior behavior)\n   at System.Collections.Generic.Dictionary`2.Add(TKey key, TValue value)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1035\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectObject(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 678\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2234-fwf/s"
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Context: Diagnostics of test state\nMismatch between number of diagnostics returned, expected \"1\" actual \"2\"\r\n\r\nDiagnostics:\r\n// /0/Test0.cs(10,5): error MsgPack005: All KeyAttribute arguments must be of the same type (either string or int)\nVerifyCS.Diagnostic(MsgPack00xMessagePackAnalyzer.MsgPack005).WithSpan(10, 5, 11, 40),\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.InvalidOperationException' with message 'Nullable object must have a value.'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: Foo (NamedType)\n\nSystem.InvalidOperationException: Nullable object must have a value.\n   at System.Nullable`1.get_Value()\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1013\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectObject(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 678\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2234-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 378\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.Collect() "
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "outcome": "passed",
+          "new": true
+        }
+      ],
+      "log": "evidence/2234/logs/tests_fail_without_fix.1.log",
+      "duration_s": 2.0,
+      "reverted_files": [
+        "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+      ],
+      "full_suite_with_source_reverted": {
+        "total": 175,
+        "failed": 4,
+        "failed_tests": [
+          "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+          "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure"
+        ],
+        "log": "evidence/2234/logs/fail_without_fix.full_suite.log"
+      },
+      "new_failed": 4,
+      "new_total": 8
+    },
+    {
+      "id": "tests.full_suite",
+      "tool": "dotnet test",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "tests/MessagePack.SourceGenerator.Tests: 175 tests, 175 passed, 0 failed (0 not failing on base, 0 also failing on base)",
+      "project": "tests/MessagePack.SourceGenerator.Tests",
+      "total": 175,
+      "passed": 175,
+      "failed": 0,
+      "failures_not_on_base": [],
+      "failures_also_on_base": [],
+      "log": "evidence/2234/logs/tests_full_suite.log",
+      "duration_s": 6.0
+    },
+    {
+      "id": "public_api",
+      "tool": "git diff of PublicAPI.*.txt + scan of added public/protected declarations in src/",
+      "status": "pass",
+      "summary": "no public API changes: no PublicAPI.Shipped/Unshipped.txt changed, no public/protected declarations added or removed in src/",
+      "publicapi_files_changed": []
+    },
+    {
+      "id": "analyzers",
+      "tool": "dotnet build warnings (Roslyn analyzers, StyleCop, PublicApiAnalyzers) vs base",
+      "status": "pass",
+      "summary": "no new warnings",
+      "new_warnings": [],
+      "resolved_warnings": [],
+      "base_warning_count": 1
+    },
+    {
+      "id": "tests.targeted.execution",
+      "tool": "dotnet build + dotnet test (ExecutionTests, MapModeExecutionTests)",
+      "tool_version": "9.0.321",
+      "tool_version_note": "SDK 9 used because the generator needs Roslyn 4.12; repo pins 8.0.402 (global.json overridden to 9.0.321 in the scratch worktree only)",
+      "filter": "FullyQualifiedName~SuppressedSourceGenerationTests.",
+      "projects": [
+        "tests/MessagePack.SourceGenerator.ExecutionTests",
+        "tests/MessagePack.SourceGenerator.MapModeExecutionTests"
+      ],
+      "status": "pass",
+      "summary": "SuppressedSourceGenerationTests: 4 passed, 0 failed (4 new test results; runtime: generator runs inside csc, no CS9057)",
+      "tests": [
+        {
+          "name": "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver",
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+          "project": "tests/MessagePack.SourceGenerator.MapModeExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver",
+          "project": "tests/MessagePack.SourceGenerator.MapModeExecutionTests",
+          "outcome": "passed",
+          "new": true
+        }
+      ],
+      "cs9057": false,
+      "log": [
+        "evidence/2234/logs/execution.ExecutionTests.build.log",
+        "evidence/2234/logs/execution.ExecutionTests.targeted.log",
+        "evidence/2234/logs/execution.ExecutionTests.full.log",
+        "evidence/2234/logs/execution.MapModeExecutionTests.build.log",
+        "evidence/2234/logs/execution.MapModeExecutionTests.targeted.log",
+        "evidence/2234/logs/execution.MapModeExecutionTests.full.log"
+      ],
+      "duration_s": 49.0,
+      "on_base": "tests do not exist on base (new in this change): tests/MessagePack.SourceGenerator.ExecutionTests built=True, 0 matching tests, tests/MessagePack.SourceGenerator.MapModeExecutionTests built=True, 0 matching tests",
+      "sdk8_attempt": {
+        "tool_version": "8.0.402",
+        "status": "error",
+        "reason": "CS9057: generator references Microsoft.CodeAnalysis 4.12, SDK 8.0.402 ships Roslyn 4.11",
+        "log": "evidence/2234/logs/execution_tests.sdk8.build.log"
+      }
+    },
+    {
+      "id": "tests.execution_fail_without_fix",
+      "tool": "dotnet test (source reverted, tests kept) - ExecutionTests",
+      "tool_version": "9.0.321",
+      "tool_version_note": "SDK 9 used because the generator needs Roslyn 4.12; repo pins 8.0.402 (global.json overridden to 9.0.321 in the scratch worktree only)",
+      "filter": "FullyQualifiedName~SuppressedSourceGenerationTests.",
+      "projects": [
+        "tests/MessagePack.SourceGenerator.ExecutionTests",
+        "tests/MessagePack.SourceGenerator.MapModeExecutionTests"
+      ],
+      "tests": [
+        {
+          "name": "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver",
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+          "project": "tests/MessagePack.SourceGenerator.MapModeExecutionTests",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver",
+          "project": "tests/MessagePack.SourceGenerator.MapModeExecutionTests",
+          "outcome": "passed",
+          "new": true
+        }
+      ],
+      "log": [
+        "evidence/2234/logs/execution_fail_without_fix.ExecutionTests.build.log",
+        "evidence/2234/logs/execution_fail_without_fix.ExecutionTests.targeted.log",
+        "evidence/2234/logs/execution_fail_without_fix.ExecutionTests.full.log",
+        "evidence/2234/logs/execution_fail_without_fix.MapModeExecutionTests.build.log",
+        "evidence/2234/logs/execution_fail_without_fix.MapModeExecutionTests.targeted.log",
+        "evidence/2234/logs/execution_fail_without_fix.MapModeExecutionTests.full.log"
+      ],
+      "status": "fail",
+      "summary": "new runtime tests pass on base source: 0/4 failed -> these runtime tests do NOT demonstrate the change (runtime behaviour they check is identical with and without the fix)",
+      "new_failed": 0,
+      "new_total": 4
+    },
+    {
+      "id": "tests.execution_full_suite",
+      "tool": "dotnet test (whole ExecutionTests, MapModeExecutionTests) vs base",
+      "tool_version": "9.0.321",
+      "tool_version_note": "SDK 9 used because the generator needs Roslyn 4.12; repo pins 8.0.402 (global.json overridden to 9.0.321 in the scratch worktree only)",
+      "status": "pass",
+      "summary": "tests/MessagePack.SourceGenerator.ExecutionTests: 16/16 passed (base 14/14), 0 failures not on base; tests/MessagePack.SourceGenerator.MapModeExecutionTests: 22/22 passed (base 20/20), 0 failures not on base",
+      "projects": [
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests",
+          "total": 16,
+          "passed": 16,
+          "failed": 0,
+          "failures_not_on_base": [],
+          "base_total": 14,
+          "base_passed": 14,
+          "tests_added_vs_base": [
+            "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+            "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver"
+          ],
+          "tests_missing_vs_base": [],
+          "new_build_warnings_vs_base": [
+            "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs: warning SA1649: File name should match first type name (https://github.com/DotNetAnalyzers/StyleCopAnalyzers/blob/master/documentation/SA1649.md)"
+          ]
+        },
+        {
+          "project": "tests/MessagePack.SourceGenerator.MapModeExecutionTests",
+          "total": 22,
+          "passed": 22,
+          "failed": 0,
+          "failures_not_on_base": [],
+          "base_total": 20,
+          "base_passed": 20,
+          "tests_added_vs_base": [
+            "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+            "SuppressedSourceGenerationTests.SuppressedTypeRoundTripsThroughDynamicResolver"
+          ],
+          "tests_missing_vs_base": [],
+          "new_build_warnings_vs_base": [
+            "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs: warning SA1649: File name should match first type name (https://github.com/DotNetAnalyzers/StyleCopAnalyzers/blob/master/documentation/SA1649.md)"
+          ]
+        }
+      ],
+      "log": [
+        "evidence/2234/logs/execution.ExecutionTests.full.log",
+        "evidence/2234/logs/execution.MapModeExecutionTests.full.log"
+      ],
+      "duration_s": 1.0
+    }
+  ],
+  "not_run": [
+    {
+      "id": "tests.MessagePack.Tests",
+      "reason": "runtime library src/MessagePack not modified by the change; suite not run"
+    },
+    {
+      "id": "build.net472/netstandard",
+      "reason": "only the net8.0 slice of src/MessagePack was built (Linux container, Debug)"
+    },
+    {
+      "id": "benchmarks",
+      "reason": "no runtime serialization hot path touched (generator/analyzer only)"
+    }
+  ],
+  "environment": {
+    "sdk": "8.0.402",
+    "sdk_execution_tests": "9.0.321",
+    "sdk_note": "SDK 9 used because the generator needs Roslyn 4.12; repo pins 8.0.402 (global.json overridden to 9.0.321 in the scratch worktree only)",
+    "os": "linux-x64 (container)",
+    "configuration": "Debug",
+    "max_cpu": 8
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6 Codex",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T00:00:00Z",
+  "inputs": ["diff", "requirements/2297.yaml"],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2297-F1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "This scoped review did not inspect generated outputs across all formatter, resolver, and template paths to establish complete coverage of the requested attribute.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2297-F1", "quote": "Add ExcludeFromCodeCoverage attribute to generated code."}
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Whether all generated code receives ExcludeFromCodeCoverage",
+      "reason": "The change touches many templates and checked-in generated snapshots; this scoped review did not verify every generation path or the associated tests.",
+      "who_should_decide": "MessagePack source generator maintainer"
+    }
+  ]
+}

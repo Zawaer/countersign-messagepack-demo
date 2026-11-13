@@ -1,0 +1,14 @@
+# Countersign PR-flow config for this repo. Read from the default branch only (pull_request_target / issue_comment),
+# so a pull request cannot change who may countersign it.
+#
+# owners: mandate owner name -> GitHub login. Only this login's comment can carry that owner's countersignature,
+# and the signature itself must verify against snapshot/keys/<name>.pub. In production this map belongs inside the
+# signed mandate, so changing who may sign needs the mandate owner's signature too.
+owners:
+  Toivo: Zawaer
+  # Rene: <GitHub login>   (not mapped yet: Rene's areas are docs and build, none of the four changes is primarily his)
+
+branch_pattern: 'ju26-issue-(?P<change>\d+)'   # branch -> change id (requirements/<id>.yaml, evidence/<id>/)
+ledger_branch: countersign-ledger              # append-only, hash-chained ledger; written by CI after verification
+status_context: countersign/tier               # required status on main
+recorded: true                                 # reviews and build/test results are replayed from the pinned snapshot

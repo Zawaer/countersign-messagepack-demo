@@ -1,0 +1,22 @@
+[project]
+name = "countersign"
+version = "0.1.0"
+description = "Countersign: AI code review under a signed mandate (Junction 2026 reference pipeline)"
+requires-python = ">=3.11"
+dependencies = ["pyyaml>=6", "cryptography>=42"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+countersign = "countersign.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["countersign"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

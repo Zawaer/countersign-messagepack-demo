@@ -1,0 +1,297 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:45:00+02:00",
+  "inputs": [
+    "diff 32258fdb..9df83c38",
+    "facts.json",
+    "requirements/2283.yaml",
+    "issue #2283",
+    "own probe runs (SDK 8.0.402, scratch worktree, not in facts.json)"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2283-F1",
+      "verdict": "met",
+      "confidence_basis": "Root cause confirmed: Roslyn imports private fields of metadata structs, so the compiler-generated backing field of Item<T> looks like an unkeyed member and the base field path indexed DeclaringSyntaxReferences[0] unconditionally (outside the ?.Invoke), crashing the generator as well as the analyzer; head uses FirstOrDefault there, the three new tests (which also run the generator and assert the resolver hint name and no warnings) pass at head and all 3 fail on base source; my own probe of the exact issue repro (record struct Item<T> in a metadata reference) gave CS8785 + no files on base and App.R.g.cs with no generator diagnostics on head. Runtime round-trip of the generated resolver was not executed (tests.execution not run for this change), so only 'produces a resolver' is established, not that it serializes Item<int> correctly.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1077,
+          "rev": "base",
+          "quote": "MemberNeedsKey, item.DeclaringSyntaxReferences[0].GetSyntax().GetLocation()"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1077,
+          "rev": "head",
+          "quote": "MemberNeedsKey, item.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().GetLocation()"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 651,
+          "rev": "head",
+          "quote": "this.GetObjectInfo(type, callerSymbol);"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs",
+          "line": 658,
+          "rev": "head",
+          "quote": "Assert.Contains(expectedResolverHintName, hintNames);"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "requirement",
+          "req": "REQ-2283-F1",
+          "quote": "must not crash the source generator (no CS8785) and must produce a generated resolver"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-F2",
+      "verdict": "met",
+      "confidence_basis": "The new tests run MsgPack00xMessagePackAnalyzer through VerifyCS expecting zero diagnostics; on base all three fail with AD0001 IndexOutOfRangeException at TypeCollector.GetObjectInfo (facts fail_without_fix errors), at head they pass. The other hard index the issue names (BothStringAndIntKeyAreNull cast) is also replaced by a null-safe helper.",
+      "evidence": [
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "passed"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 985,
+          "rev": "head",
+          "quote": "GetPropertyIdentifierLocation(item)"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 985,
+          "rev": "base",
+          "quote": "((PropertyDeclarationSyntax)item.DeclaringSyntaxReferences[0].GetSyntax()).Identifier.GetLocation()"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-F3",
+      "verdict": "met",
+      "confidence_basis": "Every analyzer diagnostic now passes through ReportIfLocatedInCompilation, which only forwards diagnostics whose location is in a syntax tree of the current compilation. I checked that this filter is what makes ClosedGenericStruct_FromMetadataReference_UnkeyedMember pass: with only the filter reverted (FirstOrDefault kept) that test fails with two location-less MsgPack004 diagnostics for MyGenericStruct.Unkeyed (my own run, not in facts.json). So the clause is enforced. It is over-enforced, though: see finding C1.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 239,
+          "rev": "head",
+          "quote": "diagnostic => ReportIfLocatedInCompilation(reportAnalyzerDiagnostic, diagnostic)"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1446,
+          "rev": "head",
+          "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-N1",
+      "verdict": "not_met",
+      "confidence_basis": "The existing suite passes (170/170, no new failures), so the parenthetical part holds, but the clause's main statement does not: the location filter also drops diagnostics about types declared in the current compilation when the reporting location is a metadata member. My probe (scratch worktree, SDK 8, not in facts.json): metadata generic class Lib.Item<T> with [Key(0)] T Content, used as Item<Foo> where App.Foo lacks [MessagePackObject]; base reports MsgPack003 'Type must be marked with MessagePackObjectAttribute: Item.Content', head reports nothing. Item<T> as a class did not crash on base (issue table: 'class Item<T> | ok'), so this is a regression in a configuration that worked before. The existing suite does not cover it.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1341,
+          "rev": "head",
+          "quote": "Location location = callerSymbol is not null ? callerSymbol.Locations[0] : formattedType.Locations[0];"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1446,
+          "rev": "head",
+          "quote": "diagnostic.Location.IsInSource"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        },
+        {
+          "kind": "requirement",
+          "req": "REQ-2283-N1",
+          "quote": "Existing analyzer diagnostics for types declared in the current compilation keep working unchanged"
+        },
+        {
+          "kind": "issue",
+          "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283",
+          "quote": "| `class Item<T>` | ok |"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2283-N2",
+      "verdict": "met",
+      "confidence_basis": "tests.fail_without_fix: 3/3 new tests fail on base source with AD0001 IndexOutOfRangeException in GetObjectInfo (the issue's exact exception) and pass at head; one of them (UnkeyedMember) also pins the location filter, as I checked by reverting just that line. Not covered by any failing-without-fix test: the BothStringAndIntKeyAreNull change at line 985 (no test reaches it with a metadata or positional-record property).",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "Location filter silently drops MsgPack003 about an in-compilation type reached through a metadata generic",
+      "severity": "major",
+      "category": "correctness",
+      "claim": "ReportIfLocatedInCompilation drops every diagnostic whose location is not a source location in this compilation, including Location.None and metadata locations, which Roslyn does allow analyzers to report. TypeMustBeMessagePackObject (MsgPack003) is located at callerSymbol.Locations[0]; when the caller is a member of a referenced generic (Lib.Item<T>.Content) and T is an app type without [MessagePackObject] (Item<Foo>), the diagnostic is about App.Foo but is now discarded. My probe: base reports MsgPack003 (metadata location), head reports nothing, while the generator still emits App.R.g.cs and a formatter for Lib.Item`1, so the missing Foo formatter would only surface at run time. This configuration (a generic class from another assembly) did not crash on base, so it is a regression. The XML doc comment's justification ('which analyzers are not permitted to do') is only true for source locations in other compilations.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1446,
+          "rev": "head",
+          "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1341,
+          "rev": "head",
+          "quote": "callerSymbol.Locations[0]"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1442,
+          "rev": "head",
+          "quote": "which analyzers are not permitted to do"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        }
+      ],
+      "suggested_fix": "Instead of dropping, relocate: when a diagnostic's location is not in this compilation, re-report it at the nearest in-compilation location (the member of the type being analyzed that led to the metadata type, i.e. the outermost callerSymbol), or keep dropping only diagnostics about the metadata type's own members (MsgPack004/005) and let MsgPack003 for in-compilation types through. Add a test with a metadata generic class and an unattributed app type argument."
+    },
+    {
+      "id": "C2",
+      "title": "BothStringAndIntKeyAreNull is now silently suppressed for positional record properties in source",
+      "severity": "minor",
+      "category": "correctness",
+      "claim": "GetPropertyIdentifierLocation returns null when the property's syntax is a ParameterSyntax (positional record), so with the filter the diagnostic becomes Location.None and is dropped. My probe on '[MessagePackObject] public record Cmd([property: Key(null)] string Scope)': base threw AD0001 InvalidCastException (the old hard cast), head reports no key diagnostic at all. Better than a crash, but an in-source invalid contract is no longer reported; no test covers line 985.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1434,
+          "rev": "head",
+          "quote": "(property.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() as PropertyDeclarationSyntax)?.Identifier.GetLocation()"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 985,
+          "rev": "head",
+          "quote": "BothStringAndIntKeyAreNull, GetPropertyIdentifierLocation(item)"
+        }
+      ],
+      "suggested_fix": "Fall back to ParameterSyntax.Identifier (as the MemberNeedsKey path at line 926 already does) and add a test for a positional record with Key(null)."
+    },
+    {
+      "id": "C3",
+      "title": "Fix treats the symptom location; metadata struct backing fields are still walked as members",
+      "severity": "info",
+      "category": "maintainability",
+      "claim": "The crash comes from Roslyn importing private (compiler-generated backing) fields of metadata structs, which GetObjectInfo then treats as unkeyed members. The change makes those diagnostics location-safe and filters them, but still builds diagnostics for compiler-generated fields; any future diagnostic path that dereferences syntax for fields of a metadata struct will crash the same way. Skipping members without source/with CompilerGeneratedAttribute for metadata types would remove the class of bug.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1077,
+          "rev": "head",
+          "quote": "item.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().GetLocation()"
+        },
+        {
+          "kind": "issue",
+          "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283",
+          "quote": "So it needs all three of: **generic**, **value type**, **from a referenced assembly**."
+        }
+      ]
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Whether the resolver generated for a project consuming a closed generic struct from a referenced assembly serializes it correctly at run time (and whether emitting a second formatter for Lib.Item`1 in the consuming assembly is intended)",
+      "reason": "tests.execution was not run for this change (SDK 8.0.402 cannot load the Roslyn 4.12 generator); the new tests skip the generated-sources check and only assert the resolver's hint name exists. I saw the generator emit Formatters.App.R.Lib.ItemFormatter`1.g.cs in my probe but did not execute it.",
+      "who_should_decide": "source-generator area owner (run the execution tests under SDK 9 or a two-project repro)"
+    },
+    {
+      "topic": "Whether the documented behaviour change (diagnostics for referenced types are reported only by the defining project) is acceptable product behaviour",
+      "reason": "It is a policy choice for the maintainers, and it is incomplete when the defining project does not run the analyzer (e.g. a NuGet package built without it).",
+      "who_should_decide": "MessagePack-CSharp maintainers / analyzer area owner"
+    }
+  ]
+}

@@ -1,0 +1,125 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T23:40:00+00:00",
+  "inputs": [
+    "diff 32258fdb..origin/ju26-issue-2234 (9007cee1)",
+    "base source at 32258fdb; tags v3.1.0, v3.1.1 and commit 1a74a620 for regression history",
+    "requirements/2234.yaml",
+    "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234",
+    "local run: dotnet test tests/MessagePack.SourceGenerator.Tests -f net8.0 on head (175 passed, 0 failed)",
+    "local run: SuppressSourceGenerationAnalyzerTests against base TypeCollector.cs (4 failed, 4 passed)",
+    "local run: ExecutionTests / MapModeExecutionTests on head (build error in reviewer environment, see refusals)"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2234-F1",
+      "verdict": "met",
+      "confidence_basis": "On head the analyzer reports MsgPack004/015/003/005 for SuppressSourceGeneration types (8 new tests pass). The suppression early-return is after the member loop, so the contract checks run. But the base already behaved this way for 004/015/003, so the change only adds the duplicate/mixed-key cases (see C1).",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1383, "rev": "head", "quote": "if (suppressSourceGeneration is true)"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1023, "rev": "head", "quote": "if (!intMembers.ContainsKey(member.IntKey))"},
+        {"kind": "test", "name": "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported", "outcome": "passed"},
+        {"kind": "test", "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure", "outcome": "passed"},
+        {"kind": "test", "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure", "outcome": "passed"},
+        {"kind": "requirement", "req": "REQ-2234-F1", "quote": "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types"}
+      ]
+    },
+    {
+      "req": "REQ-2234-F2",
+      "verdict": "met",
+      "confidence_basis": "MsgPack017 is guarded by suppressSourceGeneration is not true, and MsgPack016 by the same flag. MsgPack011 (PartialTypeRequired) comes after the suppression return, so it is never reached. The new test with a private member and init-with-initializer on a suppressed type expects no diagnostics and passes.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 989, "rev": "base", "quote": "if (suppressSourceGeneration is not true && isInitOnly)"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1369, "rev": "base", "quote": "if (suppressSourceGeneration is true)"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 169, "rev": "head", "quote": "public async Task SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed()"},
+        {"kind": "test", "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed", "outcome": "passed"},
+        {"kind": "requirement", "req": "REQ-2234-F2", "quote": "must not be reported for types with SuppressSourceGeneration = true"}
+      ]
+    },
+    {
+      "req": "REQ-2234-N1",
+      "verdict": "met",
+      "confidence_basis": "The two throw sites (Dictionary.Add on a duplicate key -> ArgumentException; intKey!.Value after a mixed-kind diagnostic -> InvalidOperationException, both observed as AD0001 on base) are now guarded in both the property and field loops. The generator runs the same GetObjectInfo code, but no test exercises the generator on these inputs.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1022, "rev": "base", "quote": "intMembers.Add(member.IntKey, (member, item.Type));"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1008, "rev": "head", "quote": "continue; // The key kind does not match the other members; the diagnostic is reported, so skip this member."},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1148, "rev": "head", "quote": "continue; // The key kind does not match the other members; the diagnostic is reported, so skip this member."},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1163, "rev": "head", "quote": "if (!intMembers.ContainsKey(member.IntKey))"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1179, "rev": "head", "quote": "if (!stringMembers.ContainsKey(member.StringKey))"},
+        {"kind": "test", "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure", "outcome": "passed"},
+        {"kind": "requirement", "req": "REQ-2234-N1", "quote": "The analyzer and generator must not crash on invalid contracts (e.g. duplicate keys) in such types."}
+      ]
+    },
+    {
+      "req": "REQ-2234-N2",
+      "verdict": "cannot_determine",
+      "confidence_basis": "4 of the 8 new analyzer tests fail on base source (AD0001), so the fix is covered. SourceGenerator.Tests passes 175/175 on head. But the execution test projects (which include the 2 new execution tests) did not build in my environment, so I cannot establish 'no regressions in the existing test suite'.",
+      "evidence": [
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 81, "rev": "head", "quote": "public async Task DuplicateIntKeysAreReportedWithoutAnalyzerFailure()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs", "line": 21, "rev": "head", "quote": "public void NoFormatterIsGeneratedForSuppressedType()"},
+        {"kind": "requirement", "req": "REQ-2234-N2", "quote": "no regressions in the existing test suite"}
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "Change does not address the regression the issue reports; it fixes a different, pre-existing crash",
+      "severity": "major",
+      "category": "correctness",
+      "claim": "The issue says the analyzer stopped working for SuppressSourceGeneration types in 3.1.1. That regression is commit 1a74a620 ('stop collect field when object marked SuppressSourceGeneration'), which moved the 'if (suppressSourceGeneration is true) return null;' ahead of the member loop. It is on origin/master and the v3.1.x tags, but it is NOT an ancestor of base 32258fdb. In the base, the return is still after the member loop (line 1369), the same as v3.1.0, and suppressed types are already validated: MemberWithoutKeyIsReported, AllowPrivateRequiredIsReported, MemberTypeMustBeMessagePackObjectIsReported and SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed all pass against base source. The change actually fixes the analyzer crash (AD0001) on duplicate or mixed keys. That crash is not specific to suppressed types (DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes fails on base too). It also exists in v3.1.0, so it is not the 3.1.1 regression. If this change is merged into the 3.1.x line where users hit the bug, the issue stays unfixed, because the early return still skips all member checks.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1369, "rev": "base", "quote": "if (suppressSourceGeneration is true)"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1022, "rev": "base", "quote": "intMembers.Add(member.IntKey, (member, item.Type));"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 147, "rev": "head", "quote": "public async Task DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes()"},
+        {"kind": "issue", "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234", "quote": "This has happened since version 3.1.1. It still worked in 3.1.0."}
+      ],
+      "suggested_fix": "Confirm the target branch. For the 3.1.x/master line, revert the effect of 1a74a620 by moving the suppression return after the member loop and AllowPrivate check (as in this base), and keep this crash fix as a separate change."
+    },
+    {
+      "id": "C2",
+      "title": "Half of the new tests do not fail without the fix",
+      "severity": "minor",
+      "category": "tests",
+      "claim": "Run against base TypeCollector.cs, 4 of the 8 new analyzer tests pass: MemberWithoutKey, AllowPrivateRequired, MemberTypeMustBeMessagePackObject and SourceGenerationOnlyDiagnostics. The two new execution tests check run-time behaviour of the dynamic resolver, which the change does not touch. These tests document existing behaviour; they are not regression tests for the change.",
+      "evidence": [
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 21, "rev": "head", "quote": "public async Task MemberWithoutKeyIsReported()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 39, "rev": "head", "quote": "public async Task AllowPrivateRequiredIsReported()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs", "line": 27, "rev": "head", "quote": "public void SuppressedTypeRoundTripsThroughDynamicResolver()"}
+      ]
+    },
+    {
+      "id": "C3",
+      "title": "Generator now silently drops the duplicate/mismatched member instead of failing",
+      "severity": "minor",
+      "category": "correctness",
+      "claim": "For non-suppressed types the generator (reportDiagnostic == null) used to throw on duplicate or mixed keys. Now it skips the offending member and emits a formatter without it. That is safe only while MsgPack005 (Error) is reported by the analyzer. If the analyzer is disabled or MsgPack005 is downgraded via .editorconfig, the build succeeds with a formatter that silently omits a member.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1008, "rev": "head", "quote": "continue; // The key kind does not match the other members"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1023, "rev": "head", "quote": "if (!intMembers.ContainsKey(member.IntKey))"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs", "line": 43, "rev": "base", "quote": "private const DiagnosticSeverity InvalidMessagePackObjectSeverity = DiagnosticSeverity.Error;"}
+      ],
+      "suggested_fix": "When a contract error is found, have GetObjectInfo return null (no formatter) instead of continuing with a partial member set."
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Which branch this change targets, and therefore whether it resolves issue #2234 for users",
+      "reason": "The reported regression lives on master/v3.1.x, not on the base of this change. Whether the change is meant for that line, or whether a separate fix is needed there, is a release-management decision I cannot make from the code.",
+      "who_should_decide": "maintainer / release owner"
+    },
+    {
+      "topic": "No regressions in execution tests (including the 2 new SuppressedSourceGenerationTests)",
+      "reason": "ExecutionTests and MapModeExecutionTests failed to compile in my environment (CS0117 on GeneratedMessagePackResolver/MyGeneratedCompositeResolver 'Instance', also in pre-existing files), so I could not run them.",
+      "who_should_decide": "CI / build owner (facts stage)"
+    },
+    {
+      "topic": "Generator behaviour (no CS8785) on duplicate/mixed keys",
+      "reason": "Established only by code reading; the new tests run the analyzer alone (CSharpCodeFixVerifier), not the generator.",
+      "who_should_decide": "source generator area owner"
+    }
+  ]
+}

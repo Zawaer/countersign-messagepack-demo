@@ -1,0 +1,20 @@
+# PLACEHOLDER derived from upstream issue #2234 until Tieto's official requirement set is pasted in.
+change: "2234"
+branch: ju26-issue-2234
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234
+official: false
+requirements:
+  - id: REQ-2234-F1
+    type: functional
+    text: "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types, as it did in version 3.1.0."
+  - id: REQ-2234-F2
+    type: functional
+    text: "Diagnostics that only apply when a formatter is generated (partial-class requirement, AOT-only checks) must not be reported for types with SuppressSourceGeneration = true."
+  - id: REQ-2234-N1
+    type: non-functional
+    checks: [tests.full_suite]
+    text: "The analyzer and generator must not crash on invalid contracts (e.g. duplicate keys) in such types."
+  - id: REQ-2234-N2
+    type: non-functional
+    checks: [tests.fail_without_fix]
+    text: "The fix is covered by automated tests that fail without it; no regressions in the existing test suite."

@@ -1,0 +1,9 @@
+# PLACEHOLDER from upstream issue #2129
+change: "2129"
+branch: ju26-issue-2129
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129
+official: false
+requirements:
+  - id: REQ-2129-F1
+    type: functional
+    text: "Feature Request: Allow generation of Formatter for a type in a referenced assembly"

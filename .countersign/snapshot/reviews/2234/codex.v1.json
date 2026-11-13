@@ -1,0 +1,59 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6 Codex",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T00:00:00Z",
+  "inputs": ["diff", "requirements/2234.yaml"],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2234-F1",
+      "verdict": "met",
+      "confidence_basis": "Added analyzer tests assert that missing keys, duplicate keys, and mixed key kinds are diagnosed for suppressed contracts, and collector changes avoid duplicate-key insertion failures.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2234-F1", "quote": "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types, as it did in version 3.1.0."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 21, "rev": "head", "quote": "public async Task MemberWithoutKeyIsReported()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 81, "rev": "head", "quote": "public async Task DuplicateIntKeysAreReportedWithoutAnalyzerFailure()"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1023, "rev": "head", "quote": "if (!intMembers.ContainsKey(member.IntKey))"}
+      ]
+    },
+    {
+      "req": "REQ-2234-F2",
+      "verdict": "met",
+      "confidence_basis": "The added test checks that source-generation-only diagnostics do not appear for a suppressed type; the collection logic conditions an init-only diagnostic on generation not being suppressed.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2234-F2", "quote": "Diagnostics that only apply when a formatter is generated (partial-class requirement, AOT-only checks) must not be reported for types with SuppressSourceGeneration = true."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 169, "rev": "head", "quote": "public async Task SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed()"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 989, "rev": "head", "quote": "if (suppressSourceGeneration is not true && isInitOnly)"}
+      ]
+    },
+    {
+      "req": "REQ-2234-N1",
+      "verdict": "met",
+      "confidence_basis": "Duplicate integer and string keys are retained only once in the collector maps, and tests specifically cover duplicate and mixed-key invalid contracts without analyzer failure.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2234-N1", "quote": "The analyzer and generator must not crash on invalid contracts (e.g. duplicate keys) in such types."},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1025, "rev": "head", "quote": "intMembers.Add(member.IntKey, (member, item.Type));"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 81, "rev": "head", "quote": "public async Task DuplicateIntKeysAreReportedWithoutAnalyzerFailure()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 125, "rev": "head", "quote": "public async Task MixedKeyKindsAreReportedWithoutAnalyzerFailure()"}
+      ]
+    },
+    {
+      "req": "REQ-2234-N2",
+      "verdict": "cannot_determine",
+      "confidence_basis": "The added tests cover the stated scenarios, but the available repository review context contains no execution results and does not establish that the tests fail without the fix or that the full suite has no regressions.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2234-N2", "quote": "The fix is covered by automated tests that fail without it; no regressions in the existing test suite."},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/SuppressSourceGenerationAnalyzerTests.cs", "line": 125, "rev": "head", "quote": "public async Task MixedKeyKindsAreReportedWithoutAnalyzerFailure()"}
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Whether the new tests fail on base and whether the existing suite is regression-free",
+      "reason": "No facts.json checks or executed test outcomes were available to inspect.",
+      "who_should_decide": "MessagePack source generator maintainer"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+# PLACEHOLDER from upstream issue #2297
+change: "2297"
+branch: ju26-issue-2297
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2297
+official: false
+requirements:
+  - id: REQ-2297-F1
+    type: functional
+    text: "Add ExcludeFromCodeCoverage attribute to generated code."

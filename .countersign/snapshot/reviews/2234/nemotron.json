@@ -1,0 +1,377 @@
+{
+  "reviewer": "nemotron",
+  "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  "vendor": "NVIDIA",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:51:43+02:00",
+  "inputs": [
+    "requirements: requirements/2234.yaml",
+    "issue: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234",
+    "facts: evidence/2234/facts.json",
+    "diff 32258fdb..9007cee1 (4 non-generated files)",
+    "file contents: 4 blocks",
+    "context: 141605 chars (budget 180000)"
+  ],
+  "not_given": [
+    "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "README.md: diff only, full file not provided (doc)",
+    "the upstream issue page itself (only its URL); other files of the repository; build and test logs (only the facts.json summaries)"
+  ],
+  "runner": {
+    "tool": "countersign review-llm",
+    "endpoint": "https://integrate.api.nvidia.com/v1",
+    "self_hostable": true,
+    "calls": 2,
+    "json_repaired": true,
+    "raw": "reviews/2234/raw/nemotron.response.json",
+    "usage": {
+      "prompt_tokens": 81884,
+      "completion_tokens": 19846
+    }
+  },
+  "summary": "The change stops the analyzer from crashing on invalid contracts in [MessagePackObject(SuppressSourceGeneration = true)] types: duplicate-key members no longer throw from Dictionary.Add, and mixed int/string key members are reported and skipped instead of dereferencing a null key value. Contract diagnostics (missing [Key], duplicate keys, mixed key kinds, non-public member, member type) are still reported for suppressed types, while generation-only diagnostics (partial-class, AOT checks) remain unreported because GetObjectInfo returns early once source generation is suppressed. All 175 analyzer tests pass with no regressions, and 4 of the 8 new analyzer tests fail on base source with analyzer exceptions (AD0001), demonstrating the fix covers the change.",
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2234-F1",
+      "verdict": "met",
+      "confidence_basis": "On head the analyzer reports missing-key, duplicate-key and mixed-key-kind diagnostics for suppressed types and all six contract tests pass; the four crash-related tests fail on base source with analyzer exceptions, showing the fix addresses the root cause (crash on invalid contracts) rather than a symptom. Parity with version 3.1.0 could not be independently verified because no 3.1.0 evidence was provided.",
+      "evidence": [
+        {
+          "kind": "requirement",
+          "req": "REQ-2234-F1",
+          "quote": "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types, as it did in version 3.1.0."
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1008,
+          "rev": "head",
+          "quote": "continue; // The key kind does not match the other members; the diagnostic is reported, so skip this member."
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1023,
+          "rev": "head",
+          "quote": "if (!intMembers.ContainsKey(member.IntKey))"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1039,
+          "rev": "head",
+          "quote": "if (!stringMembers.ContainsKey(member.StringKey))"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix",
+          "status": "pass"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-F2",
+      "verdict": "met",
+      "confidence_basis": "Suppressed types return null from GetObjectInfo before generation-time checks are reached, and the SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed test passes on head; base-source behavior for generation-only checks is not covered by the fail_without_fix run, so the negative half rests on code inspection plus one passing head test.",
+      "evidence": [
+        {
+          "kind": "requirement",
+          "req": "REQ-2234-F2",
+          "quote": "Diagnostics that only apply when a formatter is generated (partial-class requirement, AOT-only checks) must not be reported for types with SuppressSourceGeneration = true."
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1383,
+          "rev": "head",
+          "quote": "if (suppressSourceGeneration is true)"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1386,
+          "rev": "head",
+          "quote": "return null;"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "outcome": "passed",
+          "check": "tests.fail_without_fix"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-N1",
+      "verdict": "met",
+      "confidence_basis": "The full suite passes with 0 failures on head, and the previously crashing duplicate-key and mixed-key tests now pass instead of throwing analyzer exceptions.",
+      "evidence": [
+        {
+          "kind": "requirement",
+          "req": "REQ-2234-N1",
+          "quote": "The analyzer and generator must not crash on invalid contracts (e.g. duplicate keys) in such types."
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite",
+          "status": "pass"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        }
+      ]
+    },
+    {
+      "req": "REQ-2234-N2",
+      "verdict": "met",
+      "confidence_basis": "4 of 8 new analyzer tests fail on base source (analyzer exceptions AD0001), while all pass on head; the full suite shows no regressions. The two runtime execution tests do not demonstrate the change, but the analyzer tests alone satisfy the coverage requirement.",
+      "evidence": [
+        {
+          "kind": "requirement",
+          "req": "REQ-2234-N2",
+          "quote": "The fix is covered by automated tests that fail without it; no regressions in the existing test suite."
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix",
+          "status": "pass"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite",
+          "status": "pass"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "N1",
+      "title": "Duplicate-key diagnostic reports only one diagnostic although two members share the key",
+      "severity": "minor",
+      "category": "correctness",
+      "claim": "For duplicate keys the code reports KeysMustBeUnique only on the second member and then skips adding it, so the first member remains in the dictionary; users see one diagnostic instead of being told both members collide. This matches the tests' expectations but may under-report the contract problem.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1014,
+          "rev": "head",
+          "quote": "if (intMembers.ContainsKey(intKey!.Value))"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1016,
+          "rev": "head",
+          "quote": "this.reportDiagnostic?.Invoke(Diagnostic.Create(MsgPack00xMessagePackAnalyzer.KeysMustBeUnique, item.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().GetLocation()));"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "outcome": "passed"
+        }
+      ],
+      "suggested_fix": "Consider whether both members should be flagged; no code change required unless the product owner wants the first member reported too."
+    },
+    {
+      "id": "N2",
+      "title": "New test file triggers StyleCop SA1649 warning",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "SuppressedSourceGenerationTests.cs contains two public types but the file name matches neither, producing warning SA1649 in both ExecutionTests projects.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.execution_full_suite",
+          "status": "pass"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+          "line": 9,
+          "rev": "head",
+          "quote": "public class SuppressedSourceGenerationType"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+          "line": 18,
+          "rev": "head",
+          "quote": "public class SuppressedSourceGenerationTests"
+        }
+      ],
+      "suggested_fix": "Rename the file to SuppressedSourceGenerationType.cs or split the types into separate files."
+    },
+    {
+      "id": "N3",
+      "title": "Runtime execution tests do not demonstrate the fix",
+      "severity": "info",
+      "category": "tests",
+      "claim": "SuppressedSourceGenerationTests round-trip and formatter-absence tests pass on base source as well, so they add regression coverage but not fix coverage; REQ-2234-N2 is satisfied by the analyzer tests instead.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.execution_fail_without_fix",
+          "status": "fail"
+        },
+        {
+          "kind": "test",
+          "name": "SuppressedSourceGenerationTests.NoFormatterIsGeneratedForSuppressedType",
+          "outcome": "passed",
+          "check": "tests.execution_fail_without_fix"
+        }
+      ]
+    },
+    {
+      "id": "N4",
+      "title": "README documents behavior accurately",
+      "severity": "info",
+      "category": "docs",
+      "claim": "README additions describe which diagnostics are and are not reported for suppressed types, matching the code's early-return behavior.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "README.md",
+          "line": 1620,
+          "rev": "head",
+          "quote": "The analyzer still validates these types, because they are serialized at run time and must still have a valid contract:"
+        },
+        {
+          "kind": "code",
+          "file": "README.md",
+          "line": 1634,
+          "rev": "head",
+          "quote": "The analyzer does not report the partial-class requirement ([MsgPack011](doc/analyzers/MsgPack011.md)) or the AOT-only checks ([MsgPack016](doc/analyzers/MsgPack016.md) and [MsgPack017](doc/analyzers/MsgPack017.md)) for these types, because they only apply when a formatter is generated."
+        }
+      ]
+    },
+    {
+      "id": "N5",
+      "title": "Execution tests required SDK 9 override",
+      "severity": "info",
+      "category": "maintainability",
+      "claim": "The generator references Microsoft.CodeAnalysis 4.12, so ExecutionTests cannot build with the repo-pinned SDK 8.0.402; CI on SDK 8 would fail to run these tests.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.execution_fail_without_fix",
+          "status": "fail"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.ExecutionTests/SuppressedSourceGenerationTests.cs",
+          "line": 1,
+          "rev": "head",
+          "quote": "// Copyright (c) All contributors. All rights reserved."
+        }
+      ],
+      "suggested_fix": "Area owner should decide whether to pin the generator to Roslyn 4.11 or update global.json/CI to SDK 9."
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Parity with analyzer behavior in version 3.1.0",
+      "reason": "No evidence about version 3.1.0 behavior was provided; cannot determine whether contract diagnostics match that release.",
+      "who_should_decide": "Area owner or maintainer with access to the 3.1.0 release"
+    },
+    {
+      "topic": "Whether generation-only diagnostics (MsgPack011, MsgPack016, MsgPack017) are truly unreported on base for suppressed types",
+      "reason": "The fail_without_fix run only covers four analyzer tests; no base-source evidence exists for SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed.",
+      "who_should_decide": "Area owner"
+    },
+    {
+      "topic": "Runtime library behavior (src/MessagePack) and net472/netstandard builds",
+      "reason": "Not run; the runtime library was not modified and only net8.0 was built.",
+      "who_should_decide": "Area owner"
+    },
+    {
+      "topic": "Security review of analyzer deserializing untrusted input",
+      "reason": "No security-specific evidence was provided and no security analysis was performed.",
+      "who_should_decide": "Security reviewer"
+    }
+  ]
+}

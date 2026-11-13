@@ -1,0 +1,361 @@
+{
+  "change": "2283",
+  "branch": "ju26-issue-2283",
+  "base": "32258fdb",
+  "head": "9df83c38",
+  "base_full": "32258fdbee4bcd653c79f51b4376b5103c6f4d27",
+  "head_full": "9df83c38409c8bfad0517aebffe48211eda4a5b4",
+  "commit_message": "implementation for #2283",
+  "author": "Stelian Vultur",
+  "agent_written": true,
+  "diff": {
+    "files": 4,
+    "insertions": 225,
+    "deletions": 3,
+    "by_kind": {
+      "doc": 2,
+      "source": 1,
+      "test": 1
+    },
+    "by_file": [
+      {
+        "path": "README.md",
+        "ins": 5,
+        "del": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "doc/analyzers/MsgPack004.md",
+        "ins": 5,
+        "del": 0,
+        "kind": "doc"
+      },
+      {
+        "path": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+        "ins": 26,
+        "del": 3,
+        "kind": "source"
+      },
+      {
+        "path": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs",
+        "ins": 189,
+        "del": 0,
+        "kind": "test"
+      }
+    ]
+  },
+  "new_tests_in_diff": [
+    "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+    "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+    "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember"
+  ],
+  "checks": [
+    {
+      "id": "build",
+      "tool": "dotnet build",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "command": "dotnet build tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj --no-incremental -m:8 -c Debug",
+      "projects": [
+        "src/MessagePack.SourceGenerator",
+        "src/MessagePack.Analyzers.CodeFixes",
+        "src/MessagePack.Analyzers",
+        "src/MessagePack.Annotations",
+        "src/MessagePack (net8.0)",
+        "tests/MessagePack.SourceGenerator.Tests"
+      ],
+      "summary": "0 errors, 1 unique warnings",
+      "log": "evidence/2283/logs/build.log",
+      "duration_s": 5.0
+    },
+    {
+      "id": "tests.targeted",
+      "tool": "dotnet test",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "19 passed, 0 failed, 0 skipped (3 new tests in run)",
+      "tests": [
+        {
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "passed",
+          "new": true
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfT1T2Formatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter_FormatterOnly",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter_WithKnownTypes",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsUnionFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsUnionFormatter_Nested",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Multiple",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_NullableReferenceType",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_ReferenceType_Nullable",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Struct",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Type",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Defined_In_ReferencedProject",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.NestedGenericTypes",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.NullableFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.RecursiveGenerics_Direct",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.WellKnownGenericsFormatter",
+          "outcome": "passed",
+          "new": false
+        }
+      ],
+      "log": "evidence/2283/logs/tests_targeted.1.log",
+      "duration_s": 3.0,
+      "filter": [
+        "FullyQualifiedName~GenericsFormatterTests."
+      ],
+      "project": "tests/MessagePack.SourceGenerator.Tests"
+    },
+    {
+      "id": "tests.fail_without_fix",
+      "tool": "dotnet test (source reverted, tests kept)",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "new tests fail on base source: 3/3 failed -> tests do cover the change",
+      "tests": [
+        {
+          "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Mismatch between number of diagnostics returned, expected \"0\" actual \"2\"\r\n\r\nDiagnostics:\r\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.IndexOutOfRangeException' with message 'Index was outside the bounds of the array.'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: Cmd (NamedType)\n\nSystem.IndexOutOfRangeException: Index was outside the bounds of the array.\n   at System.Collections.Immutable.ImmutableArray`1.get_Item(Int32 index)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1075\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectGeneric(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 651\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 363\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1043\n   at MessagePack.SourceGener"
+        },
+        {
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Mismatch between number of diagnostics returned, expected \"0\" actual \"2\"\r\n\r\nDiagnostics:\r\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.IndexOutOfRangeException' with message 'Index was outside the bounds of the array.'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: MyObject (NamedType)\n\nSystem.IndexOutOfRangeException: Index was outside the bounds of the array.\n   at System.Collections.Immutable.ImmutableArray`1.get_Item(Int32 index)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1075\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectGeneric(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 651\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 363\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1043\n   at MessagePack.Source"
+        },
+        {
+          "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember",
+          "outcome": "failed",
+          "new": true,
+          "error": "System.InvalidOperationException : Mismatch between number of diagnostics returned, expected \"0\" actual \"3\"\r\n\r\nDiagnostics:\r\n// error AD0001: Analyzer 'MessagePack.SourceGenerator.Analyzers.MsgPack00xMessagePackAnalyzer' threw an exception of type 'System.IndexOutOfRangeException' with message 'Index was outside the bounds of the array.'.\r\nException occurred with following context:\r\nCompilation: TestProject\nISymbol: MyObject (NamedType)\n\nSystem.IndexOutOfRangeException: Index was outside the bounds of the array.\n   at System.Collections.Immutable.ImmutableArray`1.get_Item(Int32 index)\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1075\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectGeneric(INamedTypeSymbol type, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 651\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.CollectCore(ITypeSymbol typeSymbol, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 363\n   at MessagePack.SourceGenerator.CodeAnalysis.TypeCollector.GetObjectInfo(INamedTypeSymbol formattedType, ISymbol callerSymbol) in /data/src/mp-2283-fwf/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:line 1043\n   at MessagePack.Source"
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfT1T2Formatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter_FormatterOnly",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsOfTFormatter_WithKnownTypes",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsUnionFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.GenericsUnionFormatter_Nested",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Multiple",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_NullableReferenceType",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_ReferenceType_Nullable",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Struct",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Constraints_Type",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.Generics_Defined_In_ReferencedProject",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.NestedGenericTypes",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.NullableFormatter",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.RecursiveGenerics_Direct",
+          "outcome": "passed",
+          "new": false
+        },
+        {
+          "name": "GenericsFormatterTests.WellKnownGenericsFormatter",
+          "outcome": "passed",
+          "new": false
+        }
+      ],
+      "log": "evidence/2283/logs/tests_fail_without_fix.1.log",
+      "duration_s": 3.0,
+      "reverted_files": [
+        "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs"
+      ],
+      "full_suite_with_source_reverted": {
+        "total": 170,
+        "failed": 3,
+        "failed_tests": [
+          "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference",
+          "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference",
+          "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember"
+        ],
+        "log": "evidence/2283/logs/fail_without_fix.full_suite.log"
+      },
+      "new_failed": 3,
+      "new_total": 3
+    },
+    {
+      "id": "tests.full_suite",
+      "tool": "dotnet test",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "tests/MessagePack.SourceGenerator.Tests: 170 tests, 170 passed, 0 failed (0 not failing on base, 0 also failing on base)",
+      "project": "tests/MessagePack.SourceGenerator.Tests",
+      "total": 170,
+      "passed": 170,
+      "failed": 0,
+      "failures_not_on_base": [],
+      "failures_also_on_base": [],
+      "log": "evidence/2283/logs/tests_full_suite.log",
+      "duration_s": 9.0
+    },
+    {
+      "id": "public_api",
+      "tool": "git diff of PublicAPI.*.txt + scan of added public/protected declarations in src/",
+      "status": "pass",
+      "summary": "no public API changes: no PublicAPI.Shipped/Unshipped.txt changed, no public/protected declarations added or removed in src/",
+      "publicapi_files_changed": []
+    },
+    {
+      "id": "analyzers",
+      "tool": "dotnet build warnings (Roslyn analyzers, StyleCop, PublicApiAnalyzers) vs base",
+      "status": "pass",
+      "summary": "no new warnings",
+      "new_warnings": [],
+      "resolved_warnings": [],
+      "base_warning_count": 1
+    }
+  ],
+  "not_run": [
+    {
+      "id": "tests.execution",
+      "reason": "SDK 8.0.402 ships Roslyn 4.11 but MessagePack.SourceGenerator references Microsoft.CodeAnalysis 4.12.0, so csc refuses to load the generator (warning CS9057) and projects that consume it as an analyzer (tests/MessagePack.SourceGenerator.ExecutionTests, MapModeExecutionTests) fail to compile (CS0117 'GeneratedMessagePackResolver' does not contain 'Instance'). This also happens on base 32258fdb, so it is an environment/toolchain mismatch, not caused by the change. Needs an SDK with Roslyn >= 4.12 (e.g. .NET SDK 9.0.1xx); swapping in a newer compiler toolset was not permitted in this run."
+    },
+    {
+      "id": "tests.MessagePack.Tests",
+      "reason": "runtime library src/MessagePack not modified by the change; suite not run"
+    },
+    {
+      "id": "build.net472/netstandard",
+      "reason": "only the net8.0 slice of src/MessagePack was built (Linux container, Debug)"
+    },
+    {
+      "id": "benchmarks",
+      "reason": "no runtime serialization hot path touched (generator/analyzer only)"
+    }
+  ],
+  "environment": {
+    "sdk": "8.0.402",
+    "os": "linux-x64 (container)",
+    "configuration": "Debug",
+    "max_cpu": 8
+  }
+}

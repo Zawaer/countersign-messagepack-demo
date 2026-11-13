@@ -1,0 +1,161 @@
+# Countersign review mandate for MessagePack-CSharp.
+# This file is policy, not code: it says what the AI reviewer may clear alone and what goes to a named human.
+# It is signed by its owner (messagepack.mandate.yaml.sig) and its sha256 is recorded in every evidence pack.
+# Any edit invalidates the signature; until the owner re-signs, nothing clears below `ask`.
+
+id: messagepack-csharp
+version: 2
+owner: Toivo
+repo: https://github.com/te-industry-tech-office/junction26-messagepack-csharp
+
+# Confidentiality. confidential: true means only reviewers marked self_hostable (open weights we can run on
+# our own hardware) may read the code; the others are skipped and the pack says so. An area may override this
+# with its own `confidential:`. MessagePack-CSharp is open source, so nothing here is confidential.
+confidential: false
+
+# Reviewer registry. role: reviewer = gives per-clause verdicts and findings; every participating reviewer must
+# say `met` with verified evidence for a clause to be proven. role: adjudicator = reads only the disputed items
+# (with both sides' cited evidence and the engine's verification) when reviewers disagree; it can add reasons
+# and route to a human, never clear anything.
+reviewers:
+  claude:   {vendor: Anthropic, model: claude-opus-5-5, role: reviewer, self_hostable: false}
+  codex:    {vendor: OpenAI, model: gpt-5-codex, role: reviewer, self_hostable: false}
+  nemotron: {vendor: NVIDIA, model: nvidia/nemotron-3.5-super-vl-120b-a12b, role: reviewer, self_hostable: true,
+             note: "open weights; called on NVIDIA's hosted API here, a confidential repo must point it at a self-hosted endpoint"}
+  gemini:   {vendor: Google, model: gemini-4-hydrogen, role: adjudicator, self_hostable: false}
+
+# Areas: first match wins, so order is precedence. max_ai_tier is the most lenient tier the AI may
+# assign alone in that area (its clearance right). The trust ledger can lower it after an escape.
+areas:
+  runtime-core:
+    description: Serializer runtime; deserializes untrusted input
+    owner: Toivo
+    paths: ["src/MessagePack/**"]
+    sensitivity: critical
+    max_ai_tier: ask
+    checks: [build, tests.targeted, tests.full_suite]
+  annotations-api:
+    description: Public attributes every user compiles against
+    owner: Toivo
+    paths: ["src/MessagePack.Annotations/**"]
+    sensitivity: critical
+    max_ai_tier: ask
+    checks: [build]
+  generator-analyzer-core:
+    description: Roslyn source generator and MsgPack00x analyzers
+    owner: Toivo
+    paths: ["src/MessagePack.SourceGenerator/**", "src/MessagePack.Analyzers*/**"]
+    sensitivity: high
+    max_ai_tier: notify
+    checks: [build, tests.targeted, tests.fail_without_fix]
+  build:
+    description: Build, packaging and CI configuration
+    owner: Rene
+    paths: ["**/*.csproj", "**/*.props", "**/*.targets", "global.json", "*.sln", "azure-pipelines/**", ".github/**", ".config/**"]
+    sensitivity: medium
+    max_ai_tier: notify
+    checks: [build]
+  docs:
+    description: User documentation and analyzer docs
+    owner: Rene
+    paths: ["doc/**", "**/*.md"]
+    sensitivity: low
+    max_ai_tier: silent
+    checks: []
+  tests:
+    description: Test projects, test resources, samples, benchmarks
+    owner: Toivo
+    paths: ["tests/**", "sandbox/**", "benchmark/**"]
+    sensitivity: low
+    max_ai_tier: silent
+    checks: [build]
+  unmapped:
+    description: Anything no other area claims
+    owner: Toivo
+    paths: []
+    sensitivity: medium
+    max_ai_tier: ask
+    checks: [build]
+default_area: unmapped
+
+# Paths where a mistake is a security problem (deserialization of untrusted data, unsafe code).
+security_sensitive_paths:
+  - "src/MessagePack/MessagePackSecurity.cs"
+  - "src/MessagePack/MessagePackReader*.cs"
+  - "src/MessagePack/Formatters/**"
+  - "src/MessagePack/Internal/**"
+  - "**/*Unsafe*.cs"
+
+# Deterministic checks each requirement clause needs, by clause type.
+# A clause may add its own with `checks:` in requirements/<change>.yaml.
+requirement_checks:
+  functional: [build, tests.targeted]
+  non-functional: [build]
+  intent: []
+
+decision:
+  # Proven needs EVERY participating reviewer (registry role reviewer, allowed by confidentiality) to say met
+  # with verified evidence, and the clause's checks to pass. A reviewer that did not run counts as missing_review.
+  reviewers_required: all_participating
+  min_verified_evidence: 1        # per reviewer verdict; fewer -> thin_evidence
+  code_line_tolerance: 3          # a code quote may sit up to N lines from the cited line
+  refused_clause_tier: ask        # any clause the AI could not prove
+  reviewer_refusal_tier: ask      # any topic a reviewer explicitly refused to decide
+  finding_tiers: {blocker: ask, major: ask, minor: notify, info: silent}
+  blocker_confirmed_tier: block   # blocker verified by both reviewers, or backed by a failing check
+
+# Hard rules. `when` names a predicate in countersign/decide.py (RULES); `value` is its threshold.
+rules:
+  - {id: split-large-change, when: files_changed_gt, value: 50, tier: block,
+     message: "More than 50 files changed: split the change so each part can be reviewed"}
+  - {id: generated-files, when: generated_files_gt, value: 10, tier: ask,
+     message: "More than 10 generated files: a human confirms the regeneration is intended"}
+  # public_api is a detector, not a pass/fail gate: status fail or changed: true means the public surface changed.
+  - {id: public-api-change, when: public_api_changed, tier: ask,
+     message: "Public API changed: the owner decides on compatibility"}
+  - {id: source-without-tests, when: source_without_tests, tier: ask,
+     message: "Source changed with no test change"}
+  - {id: mandated-check-failed, when: mandated_check_failed, tier: block,
+     message: "A check this area mandates failed"}
+  - {id: mandated-check-missing, when: mandated_check_missing, tier: ask,
+     message: "A check this area mandates did not run (skipped, errored or absent)"}
+  - {id: mandate-not-signed, when: mandate_unsigned, tier: ask,
+     message: "The mandate is not validly signed by its owner, so the AI has no clearance rights"}
+
+# Risk score: additive, every point has a printed reason. Bands map to tiers.
+risk:
+  sensitivity_points: {low: 0, medium: 10, high: 20, critical: 35}
+  per_file: 1
+  files_cap: 20
+  per_100_lines: 4                 # non-generated lines added + removed
+  lines_cap: 20
+  per_generated_file: 0.1
+  generated_cap: 10
+  public_api_change: 20
+  source_without_tests: 15
+  security_sensitive_path: 25
+  fail_without_fix_not_shown: 15
+  per_reviewer_disagreement: 8
+  per_failed_check: 25
+  thresholds: {notify: 15, ask: 40, block: 130}   # score >= threshold -> that tier; blocks normally come from hard rules
+
+trust:
+  escape_cap: ask                         # an escape on an AI-cleared change drops the area to this
+  disagree_tightens_by: 1                 # a disagreeing spot-check tightens the cap one step
+  restore_after_agreeing_spotchecks: 3    # consecutive agreeing spot-checks needed to restore the mandate cap
+
+# Never checked by this pipeline; printed in every pack under "not checked".
+known_gaps:
+  - {id: other-targets, reason: "Tests run on net8.0 only; .NET Framework, Unity and NativeAOT targets are not exercised"}
+  - {id: runtime-perf, reason: "No benchmarks unless a perf-sensitive path is touched; allocation and throughput regressions can slip through"}
+  - {id: semantic-intent, reason: "Correctness beyond what tests and cited evidence show is not established by the AI"}
+  - {id: provenance, reason: "Licensing and provenance of agent-written code are not checked"}
+
+# Inputs to the review-time estimate. Estimates are always reported as simulated.
+measurement:
+  full_read_lines_per_minute: 12
+  generated_lines_per_minute: 120
+  full_read_minutes_per_file: 1
+  pack_minutes: {silent: 0, notify: 1, ask: 5, block: 3}
+  minutes_per_refused_item: 3
+  minutes_per_verified_finding: 2

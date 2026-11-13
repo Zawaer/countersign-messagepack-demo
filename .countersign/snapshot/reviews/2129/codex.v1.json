@@ -1,0 +1,26 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6 Codex",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T00:00:00Z",
+  "inputs": ["diff", "requirements/2129.yaml"],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2129-F1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "This scoped review did not trace the new referenced-type formatter request path end to end or establish the supported type and assembly cases.",
+      "evidence": [
+        {"kind": "requirement", "req": "REQ-2129-F1", "quote": "Feature Request: Allow generation of Formatter for a type in a referenced assembly"}
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Whether formatter generation for referenced-assembly types fully meets the feature request",
+      "reason": "Only the diff summary and requirement were reviewed; the implementation path, edge cases, and execution tests were not traced.",
+      "who_should_decide": "MessagePack source generator maintainer"
+    }
+  ]
+}

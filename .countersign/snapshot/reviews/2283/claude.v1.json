@@ -1,0 +1,134 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-13T23:30:00+00:00",
+  "inputs": [
+    "diff 32258fdb..origin/ju26-issue-2283 (9df83c38)",
+    "base source at 32258fdb (TypeCollector.cs, test verifier)",
+    "requirements/2283.yaml",
+    "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283",
+    "local run: dotnet test tests/MessagePack.SourceGenerator.Tests -f net8.0 on head (170 passed, 0 failed)",
+    "local run: 3 new tests against base TypeCollector.cs with head tests (3 failed: AD0001 + CS8785)",
+    "local run: ExecutionTests / MapModeExecutionTests on head (build error in reviewer environment, see refusals)"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2283-F1",
+      "verdict": "met",
+      "confidence_basis": "Both base sites that index DeclaringSyntaxReferences[0] (lines 985 and 1077) now use FirstOrDefault-based lookups, and the new tests compile the defining type to a metadata-only image, run the generator and assert the resolver hint name is produced; they pass on head and failed with CS8785/AD0001 when I restored the base TypeCollector.cs.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1077, "rev": "base", "quote": "Diagnostic.Create(MsgPack00xMessagePackAnalyzer.MemberNeedsKey, item.DeclaringSyntaxReferences[0].GetSyntax().GetLocation()"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1077, "rev": "head", "quote": "Diagnostic.Create(MsgPack00xMessagePackAnalyzer.MemberNeedsKey, item.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().GetLocation()"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 985, "rev": "head", "quote": "MsgPack00xMessagePackAnalyzer.BothStringAndIntKeyAreNull, GetPropertyIdentifierLocation(item)"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 658, "rev": "head", "quote": "Assert.Contains(expectedResolverHintName, hintNames);"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference", "outcome": "passed"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference", "outcome": "passed"},
+        {"kind": "issue", "url": "https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283", "quote": "Both `MessagePackGenerator` (CS8785) and `MsgPack00xMessagePackAnalyzer` (AD0001) throw `IndexOutOfRangeException`"},
+        {"kind": "requirement", "req": "REQ-2283-F1", "quote": "must not crash the source generator (no CS8785) and must produce a generated resolver"}
+      ]
+    },
+    {
+      "req": "REQ-2283-F2",
+      "verdict": "met",
+      "confidence_basis": "The test harness runs every DiagnosticAnalyzer in the generator assembly (including MsgPack00xMessagePackAnalyzer) and fails on any unexpected diagnostic, so AD0001 would fail the new tests; they pass on head and reported AD0001 on base source.",
+      "evidence": [
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/Verifiers/CSharpSourceGeneratorVerifier`1+Test.cs", "line": 166, "rev": "head", "quote": "protected override IEnumerable<DiagnosticAnalyzer> GetDiagnosticAnalyzers()"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1077, "rev": "head", "quote": "item.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax().GetLocation()"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember", "outcome": "passed"},
+        {"kind": "requirement", "req": "REQ-2283-F2", "quote": "The MsgPack00x analyzer must not throw (no AD0001) for the same input."}
+      ]
+    },
+    {
+      "req": "REQ-2283-F3",
+      "verdict": "met",
+      "confidence_basis": "Every diagnostic routed through this.reportDiagnostic is now wrapped by ReportIfLocatedInCompilation, which only forwards diagnostics whose location is in source and in a syntax tree of the analyzed compilation; the one direct call (InaccessibleDataType in the constructor) uses the analyzed target's own declaration. Met by code reading; the test only covers the metadata-image case (see finding C1).",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 239, "rev": "head", "quote": "this.reportDiagnostic = reportAnalyzerDiagnostic is null ? null : diagnostic => ReportIfLocatedInCompilation(reportAnalyzerDiagnostic, diagnostic);"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1446, "rev": "head", "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 248, "rev": "head", "quote": "reportAnalyzerDiagnostic?.Invoke(Diagnostic.Create(MsgPack00xMessagePackAnalyzer.InaccessibleDataType, decl.Identifier.GetLocation()));"},
+        {"kind": "requirement", "req": "REQ-2283-F3", "quote": "must not be reported at locations outside the compilation being analyzed"}
+      ]
+    },
+    {
+      "req": "REQ-2283-N1",
+      "verdict": "cannot_determine",
+      "confidence_basis": "MessagePack.SourceGenerator.Tests (net8.0) passes on head with 170/170, but the execution test projects did not build in my environment (a pre-existing file fails too), I did not run net472, and the new global location filter can in principle drop an existing diagnostic whose location is null (finding C2).",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1446, "rev": "head", "quote": "if (diagnostic.Location.IsInSource"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 786, "rev": "head", "quote": "_ => null,"},
+        {"kind": "requirement", "req": "REQ-2283-N1", "quote": "Existing analyzer diagnostics for types declared in the current compilation keep working unchanged"}
+      ]
+    },
+    {
+      "req": "REQ-2283-N2",
+      "verdict": "met",
+      "confidence_basis": "I restored base TypeCollector.cs while keeping the head tests: all three new tests failed (AD0001 IndexOutOfRangeException plus CS8785); with the head source all three pass.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 985, "rev": "base", "quote": "((PropertyDeclarationSyntax)item.DeclaringSyntaxReferences[0].GetSyntax()).Identifier.GetLocation()"},
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 673, "rev": "head", "quote": "return MetadataReference.CreateFromImage(stream.ToArray());"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference", "outcome": "passed"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericRecordStruct_FromMetadataReference", "outcome": "passed"},
+        {"kind": "test", "name": "GenericsFormatterTests.ClosedGenericStruct_FromMetadataReference_UnkeyedMember", "outcome": "passed"},
+        {"kind": "requirement", "req": "REQ-2283-N2", "quote": "The fix is covered by automated tests that fail without it."}
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "Location filter is not tested for source-backed symbols from another compilation",
+      "severity": "minor",
+      "category": "tests",
+      "claim": "The new tests only reference the defining assembly as a metadata image, where referenced symbols have no syntax at all. The branch of ReportIfLocatedInCompilation that matters for REQ-2283-F3 (a referenced symbol that has syntax in a tree outside the compilation, e.g. a CompilationReference as used for project-to-project references in the IDE) is not exercised. The code looks correct, but no test pins this down.",
+      "evidence": [
+        {"kind": "code", "file": "tests/MessagePack.SourceGenerator.Tests/GenericsFormatterTests.cs", "line": 673, "rev": "head", "quote": "MetadataReference.CreateFromImage(stream.ToArray())"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1446, "rev": "head", "quote": "this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree)"}
+      ],
+      "suggested_fix": "Add a variant that adds the defining compilation via compilation.ToMetadataReference() (CompilationReference) and asserts no AD0001 and no diagnostics located in the foreign tree."
+    },
+    {
+      "id": "C2",
+      "title": "Global filter also drops Location.None diagnostics for types in the current compilation",
+      "severity": "minor",
+      "category": "correctness",
+      "claim": "The filter drops every diagnostic whose location is not in source, not only diagnostics about referenced types. At least one existing site (MsgPack018 CollidingMemberNamesInForceMapMode) computes a null location when the colliding member has no syntax, for example when it comes from a base class in metadata. Before this change that Error diagnostic was reported without a location; now it is silently dropped. I did not confirm by running that this path is reachable, so this is a risk and not a demonstrated regression.",
+      "evidence": [
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 786, "rev": "head", "quote": "_ => null,"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 789, "rev": "head", "quote": "reportDiagnostic?.Invoke(Diagnostic.Create(MsgPack00xMessagePackAnalyzer.CollidingMemberNamesInForceMapMode, location));"},
+        {"kind": "code", "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs", "line": 1446, "rev": "head", "quote": "if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))"}
+      ],
+      "suggested_fix": "Only drop diagnostics whose location is in source but in a foreign syntax tree, or fall back to the analyzed symbol's location instead of dropping; alternatively apply the filter only when formattedType is not from this compilation."
+    },
+    {
+      "id": "C3",
+      "title": "Docs promise the defining project reports the diagnostics, which only holds if that project runs the MessagePack analyzer",
+      "severity": "info",
+      "category": "docs",
+      "claim": "README and MsgPack004.md state that problems in a referenced type are reported by the defining project. That only happens if the defining project itself references the MessagePack analyzer. Otherwise the consuming build now silently ignores, for example, unkeyed members of the referenced type.",
+      "evidence": [
+        {"kind": "code", "file": "README.md", "line": 1642, "rev": "head", "quote": "Diagnostics about the members of such a type are reported by the assembly that defines it rather than by the consuming project"},
+        {"kind": "code", "file": "doc/analyzers/MsgPack004.md", "line": 51, "rev": "head", "quote": "This analyzer only reports on members declared in the project being compiled."}
+      ],
+      "suggested_fix": "Qualify the sentence: 'reported when the defining project uses the MessagePack analyzer'."
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "No regressions across the full test suite (execution tests, net472 target, MessagePack.Tests)",
+      "reason": "MessagePack.SourceGenerator.ExecutionTests and MapModeExecutionTests failed to compile in my environment with CS0117 in a pre-existing file (GeneratedCompositeResolverTests.cs, 'MyGeneratedCompositeResolver' does not contain a definition for 'Instance'), which points to an environment/build-order issue, not this change. I only ran SourceGenerator.Tests on net8.0.",
+      "who_should_decide": "CI / build owner (facts stage)"
+    },
+    {
+      "topic": "Behaviour in the IDE with project-to-project references (CompilationReference symbols)",
+      "reason": "Needs runtime behaviour in a workspace host; no test covers it and I did not build such a scenario.",
+      "who_should_decide": "source generator / analyzer area owner"
+    },
+    {
+      "topic": "Whether the MsgPack018 null-location path (C2) is reachable in practice",
+      "reason": "Depends on member enumeration order over metadata base types; I would have to construct and run a scenario I did not run.",
+      "who_should_decide": "analyzer area owner"
+    }
+  ]
+}

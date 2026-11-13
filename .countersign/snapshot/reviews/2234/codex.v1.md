@@ -1,0 +1,1 @@
+The analyzer tests cover suppressed contracts with missing keys, duplicate keys, mixed key kinds, and generation-only diagnostics. I found no test execution evidence, so I cannot verify the no-regression or fail-without-fix clauses.

@@ -1,0 +1,147 @@
+{
+  "reviewer": "claude",
+  "model": "claude-opus-5-5",
+  "vendor": "Anthropic",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T02:05:00+02:00",
+  "scope": "scoped review: the 7 template/source files and the new test; the 228 regenerated test resource files were not read individually.",
+  "inputs": [
+    "diff 32258fdb..a0aa5ab2 (src + new test)",
+    "facts.json",
+    "requirements/2297.yaml",
+    "netstandard.library 2.0.3 reference docs (local NuGet cache)"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2297-F1",
+      "verdict": "not_met",
+      "confidence_basis": "On net5+ consumers the attribute is emitted on every generated type (AllGeneratedTypesAreExcludedFromCodeCoverage passes at head and fails on base). But every emission is wrapped in '#if !NETSTANDARD2_0 && !NETFRAMEWORK', which is evaluated in the consumer's compilation, so consumers targeting netstandard2.0 or .NET Framework get no attribute. The stated reason ('not available on netstandard2.0 or .NET Framework') is wrong: System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute is in the netstandard 2.0 reference assembly (I checked netstandard.library 2.0.3's netstandard.xml) and has been in .NET Framework since 4.0, with AttributeTargets.Class allowed. So for targets MessagePack supports, the requirement is not met, and a test pins the omission.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/ResolverTemplate.tt",
+          "line": 14,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.Tests/CodeCoverageExclusionTests.cs",
+          "line": 18,
+          "rev": "head",
+          "quote": "The attribute is not available on netstandard2.0 or .NET Framework"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.ExcludeAttributeIsGuardedForTargetsWhereItIsUnavailable",
+          "outcome": "passed"
+        },
+        {
+          "kind": "requirement",
+          "req": "REQ-2297-F1",
+          "quote": "Add ExcludeFromCodeCoverage attribute to generated code."
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "C1",
+      "title": "Coverage attribute is suppressed for netstandard2.0 and .NET Framework consumers based on a false premise",
+      "severity": "major",
+      "category": "correctness",
+      "claim": "The templates guard the attribute with '#if !NETSTANDARD2_0 && !NETFRAMEWORK'. ExcludeFromCodeCoverageAttribute exists in netstandard2.0 and in .NET Framework 4.0+, so the guard only removes the feature for Unity/.NET Framework/netstandard library consumers. The test ExcludeAttributeIsGuardedForTargetsWhereItIsUnavailable pins this behaviour, and the README claims 'All generated formatters and resolvers are decorated', which is false for those targets.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/ResolverTemplate.tt",
+          "line": 14,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/ResolverTemplate.tt",
+          "line": 31,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+          "line": 14,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "tests/MessagePack.SourceGenerator.Tests/CodeCoverageExclusionTests.cs",
+          "line": 19,
+          "rev": "head",
+          "quote": "private const string Guard = \"#if !NETSTANDARD2_0 && !NETFRAMEWORK\";"
+        },
+        {
+          "kind": "code",
+          "file": "README.md",
+          "line": 1639,
+          "rev": "head",
+          "quote": "All generated formatters and resolvers are decorated with `[ExcludeFromCodeCoverage]`"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.ExcludeAttributeIsGuardedForTargetsWhereItIsUnavailable",
+          "outcome": "passed"
+        }
+      ],
+      "suggested_fix": "Drop the #if guard and emit [global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] unconditionally; replace the guard test with one that compiles generated code against a netstandard2.0 / net472 reference set."
+    },
+    {
+      "id": "C2",
+      "title": "237-file change is dominated by regenerated test resources",
+      "severity": "info",
+      "category": "scope",
+      "claim": "228 of 237 files are regenerated expected-output resources. The behavioural change is in 7 template/source files. Reviewers should read the templates and spot-check the resources, not the reverse.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.full_suite"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/TransformUtilities.cs",
+          "line": 58,
+          "rev": "head",
+          "quote": "writer(anyConstraints ? \"{\\r\\n\" : \" {\\r\\n\");"
+        }
+      ]
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Whether all 228 regenerated test resource files differ from base only by the coverage attribute and the brace/newline fix",
+      "reason": "Scoped review: not read individually. tests.full_suite passing shows they match the new generator output, not that the output is otherwise unchanged.",
+      "who_should_decide": "source-generator area owner (diff-filter the resources)"
+    },
+    {
+      "topic": "Effect on generated code in consumers built with older compilers or with ImplicitUsings/nullable settings",
+      "reason": "Execution tests not run for this change (tests.execution not run: SDK 8 cannot load the generator); no compile of generated code against net472/netstandard2.0 targets.",
+      "who_should_decide": "source-generator area owner"
+    },
+    {
+      "topic": "The TransformUtilities brace change ('{' to '{\\r\\n' when constraints exist): intended fix or incidental",
+      "reason": "Not mentioned in the issue; I did not establish what output it changes beyond the resources.",
+      "who_should_decide": "source-generator area owner"
+    }
+  ]
+}

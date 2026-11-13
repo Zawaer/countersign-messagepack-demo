@@ -1,0 +1,43 @@
+{
+  "reviewer": "codex",
+  "model": "GPT-6",
+  "vendor": "OpenAI",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:37:14+02:00",
+  "inputs": [
+    "diff",
+    "facts.json",
+    "requirements/2129.yaml"
+  ],
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2129-F1",
+      "verdict": "met",
+      "confidence_basis": "The supplied execution tests show generated formatters for external types pass, and those tests depend on the new feature according to the fail-without-fix result.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.execution_full_suite"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.MessagePackObjectCanContainExternalTypes",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.GeneratedFormattersAreRegisteredInGeneratedResolver",
+          "outcome": "passed"
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "refusals": [
+    {
+      "topic": "Full acceptance and compatibility review of the external formatter feature",
+      "reason": "This is a scoped review. The placeholder requirement contains only a broad feature statement; I did not comprehensively review all generator paths, API compatibility, or serialization contracts. The supplied facts also record a public API check failure, analyzer warning, and missing solution membership for the new test project.",
+      "who_should_decide": "area owner"
+    }
+  ]
+}
