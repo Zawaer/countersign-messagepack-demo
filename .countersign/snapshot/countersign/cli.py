@@ -85,12 +85,27 @@ def cmd_verify_ledger(a) -> int:
 def cmd_trust(a) -> int:
     ws = _ws(a)
     m = mandate_mod.load(ws)
-    state = trust.derive(m, ledger.read(ws))
-    print(f"{'area':<26} {'owner':<6} {'mandate':<7} {'cap now':<7} {'probation':<9} reason")
+    entries = ledger.read(ws)
+    state = trust.derive(m, entries)
+    print("trust stages (mandate v" + m.version + "): climb one stage when its row holds; drop one stage on an escape on an AI-cleared change,")
+    print("a disagreeing spot-check or a missed canary; never above the area's mandate cap")
+    print(f"  {'stage':<7} {'agreeing in a row':>17} {'agreement':>10} {'over last':>9} {'no escape in last':>17}")
+    for row in trust.table(m):
+        if row["stage"] == "ask":
+            print(f"  {'ask':<7} {row.get('entry', 'start of the ladder')}")
+            continue
+        print(f"  {row['stage']:<7} {row.get('agreeing_spotchecks', '-'):>17} {row.get('min_agreement', 0):>10.0%} "
+              f"{row.get('agreement_window', '-'):>9} {str(row.get('no_escapes_in_last', '-')) + ' changes':>17}")
+    earned = trust.earned_versions(m, entries)
+    print("released reviewer versions (a review by any other version holds every area at ask):")
+    for (n, model, pv), why in earned.items():
+        print(f"  {n:<9} {model} / {pv}: {why}")
+    print()
+    print(f"{'area':<26} {'owner':<6} {'mandate':<7} {'cap now':<7} {'next':<7} {'progress':<9} reason")
     for area in m.areas:
         s = state[area.name]
-        prob = f"{s['streak']}/{s['needed']}" if s["probation"] else "no"
-        print(f"{area.name:<26} {area.owner:<6} {s['mandate_cap']:<7} {s['cap']:<7} {prob:<9} {s['reason']}")
+        prog = f"{s['streak']}/{s['needed']}" if s["next"] else "-"
+        print(f"{area.name:<26} {area.owner:<6} {s['mandate_cap']:<7} {s['cap']:<7} {s['next'] or '-':<7} {prog:<9} {s['reason']}")
         for h in s["history"]:
             print(f"{'':<28}{h}")
     return 0
@@ -99,7 +114,10 @@ def cmd_trust(a) -> int:
 def _event_pack(ws: Workspace, change: str, areas: list[str] | None = None) -> dict:
     p, _ = _load_pack(ws, change)
     return {"change": change, "pack_sha256": sha256_hex(canonical(p)), "tier": p["tier"], "ai_recommendation": p["ai_recommendation"],
-            "ai_cleared": p["tier"] not in HUMAN_TIERS, "areas": areas or [x["name"] for x in p["areas"]]}
+            "ai_cleared": p["tier"] not in HUMAN_TIERS, "areas": areas or [x["name"] for x in p["areas"]],
+            # which reviewer versions the event grades (trust.release_gate)
+            "reviewers": [{"name": r["reviewer"], "model": r.get("model"), "prompt_version": r.get("prompt_version")}
+                          for r in p["checked_by"]["reviewers"]]}
 
 
 def cmd_spotcheck(a) -> int:
@@ -120,6 +138,26 @@ def cmd_escape(a) -> int:
     base = _event_pack(ws, a.change, a.area or [p["primary_area"]])
     e = ledger.append(ws, "escape", {**base, "kind": a.kind, "note": a.note, "simulated": a.simulated}, a.signer)
     print(f"ledger #{e['seq']}: escape ({a.kind}) on {a.change}, AI-cleared: {base['ai_cleared']}, areas: {', '.join(base['areas'])}")
+    return cmd_trust(a)
+
+
+def cmd_canary(a) -> int:
+    """Record a canary run: seeded defects (evidence/*-mut*) sent through the reviewer panel. A miss drops each named
+    area one stage; a run that catches the whole set releases the reviewer versions it ran with."""
+    ws = _ws(a)
+    m = mandate_mod.load(ws)
+    versions = {n: {"name": n, "model": r.get("model"), "prompt_version": r.get("prompt_version")}
+                for n, r in m.reviewers.items() if r.get("role") == "reviewer"}
+    for spec in a.reviewer or []:  # name=model@prompt_version: the versions this run actually used
+        name, _, rest = spec.partition("=")
+        model, _, pv = rest.rpartition("@")
+        versions[name] = {"name": name, "model": model or rest, "prompt_version": pv if model else None}
+    if a.caught > a.seeded:
+        raise SystemExit("caught cannot exceed seeded")
+    areas = a.area or [x.name for x in m.areas]
+    e = ledger.append(ws, "canary", {"areas": areas, "seeded": a.seeded, "caught": a.caught, "missed": a.missed or [],
+                                     "reviewers": list(versions.values()), "note": a.note, "simulated": a.simulated}, a.signer)
+    print(f"ledger #{e['seq']}: canary run caught {a.caught}/{a.seeded} seeded defects (areas: {', '.join(areas)})")
     return cmd_trust(a)
 
 
@@ -149,8 +187,8 @@ def cmd_review_llm(a) -> int:
     status = 0
     for change in a.changes:
         try:
-            out = (llm.review_from_raw(ws, change, a.reviewer, a.repo, budget=a.context_chars) if a.from_raw
-                   else llm.run_review(ws, change, a.reviewer, a.repo, budget=a.context_chars))
+            out = (llm.review_from_raw(ws, change, a.reviewer, a.repo, budget=a.context_chars, blind=a.blind) if a.from_raw
+                   else llm.run_review(ws, change, a.reviewer, a.repo, budget=a.context_chars, blind=a.blind))
         except llm.LLMError as e:
             print(f"error: {change}: {e}", file=sys.stderr)
             status = 1
@@ -233,7 +271,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--decision", choices=["accept", "reject", "request-changes"])
     sp.add_argument("--note")
     add("verify-ledger", cmd_verify_ledger, "re-check the hash chain and every signature")
-    add("trust", cmd_trust, "per-area clearance caps derived from the ledger")
+    add("trust", cmd_trust, "the mandate's trust-stage table and each area's current stage, from the ledger")
     sp = add("spotcheck", cmd_spotcheck, "a human re-reviews an AI-cleared change")
     sp.add_argument("change")
     sp.add_argument("--as", dest="signer", required=True)
@@ -247,6 +285,15 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--area", action="append", help="area the escape is traced to (repeatable; default: the change's primary area)")
     sp.add_argument("--note", default="")
     sp.add_argument("--simulated", action="store_true", help="mark as a staged/demo event")
+    sp = add("canary", cmd_canary, "record a run of the seeded-defect set through the reviewer panel (trust event)")
+    sp.add_argument("--as", dest="signer", required=True)
+    sp.add_argument("--seeded", type=int, required=True)
+    sp.add_argument("--caught", type=int, required=True)
+    sp.add_argument("--missed", action="append", help="seeded defect the panel missed (repeatable)")
+    sp.add_argument("--area", action="append", help="area the canaries were drawn from (repeatable; default: every area)")
+    sp.add_argument("--reviewer", action="append", help="name=model@prompt_version the run used (default: the mandate registry)")
+    sp.add_argument("--note", default="")
+    sp.add_argument("--simulated", action="store_true", help="mark as a staged/demo event")
     sp = add("keygen", cmd_keygen, "create an Ed25519 key pair for a named owner")
     sp.add_argument("--name", required=True)
     sp.add_argument("--force", action="store_true")
@@ -257,6 +304,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--reviewer", required=True, choices=sorted(llm.PRESETS))
     sp.add_argument("--context-chars", type=int, default=None, help=f"context budget in characters (default {llm.DEFAULT_CONTEXT_CHARS})")
     sp.add_argument("--from-raw", action="store_true", help="re-parse the saved raw response instead of calling the API")
+    sp.add_argument("--blind", action=argparse.BooleanOptionalAction, default=True,
+                    help="seeded changes (<n>-mutK, <n>-inject): show the base change's id and no seeding record (default: on)")
     sp = add("adjudicate", cmd_adjudicate, "only if reviewers disagree: the adjudicator's rulings (advisory; never clears)")
     sp.add_argument("changes", nargs="+")
     sp.add_argument("--adjudicator", default=None, help="default: the mandate's adjudicator")

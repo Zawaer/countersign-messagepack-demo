@@ -52,6 +52,9 @@ Every verdict and every finding needs evidence items. Allowed kinds:
 - `issue` items are never counted as verified (the engine cannot read the web). Use them for context only.
 - A finding with no verifiable evidence is rejected and shown as "unsupported claim". Prefer one precise citation
   to five vague ones.
+- What counts towards a verdict or a finding: `code` quotes at `head` or `base` in a file the change touches, `test`
+  items with an `outcome`, `check` items with a `status`. A `requirement` quote, a test without an outcome or a check
+  without a status is shown but does not count, so state the outcome or status you are relying on.
 
 ## Refuse rather than guess
 
@@ -59,6 +62,11 @@ Every verdict and every finding needs evidence items. Allowed kinds:
   `confidence_basis`.
 - Anything you will not decide (not given the code, needs runtime behaviour, other target frameworks, performance,
   security judgement beyond the evidence, generated files you did not see) goes in `refusals` with who should decide.
+  If the refusal is about a requirement clause, set `req` to its id. Set `blocking: true` only if the change should
+  not merge until a human has decided it; otherwise the refusal is recorded and the owner is told.
+- If you reviewed this change before, your earlier findings stay open unless you raise them again or refute them:
+  to close one, add `{"finding": "<earlier id>", "reason": "why it is not a defect", "evidence": [ … about the same
+  code … ]}` to `refutations`. Dropping it silently keeps it open.
 - Never invent file contents, line numbers, test names or check results.
 
 ## Output
@@ -78,8 +86,10 @@ Return **only** one JSON object, no prose before or after, no Markdown fences:
      "claim": "what is wrong and why it matters", "evidence": [ … at least one … ], "suggested_fix": "optional"}
   ],
   "refusals": [
-    {"topic": "what you will not decide", "reason": "why", "who_should_decide": "role, e.g. area owner"}
-  ]
+    {"topic": "what you will not decide", "reason": "why", "who_should_decide": "role, e.g. area owner",
+     "req": "REQ-… if it is about one clause (optional)", "blocking": false}
+  ],
+  "refutations": []
 }
 ```
 

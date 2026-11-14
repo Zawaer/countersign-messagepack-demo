@@ -4,7 +4,7 @@
 # Any edit invalidates the signature; until the owner re-signs, nothing clears below `ask`.
 
 id: messagepack-csharp
-version: 2
+version: 4
 owner: Toivo
 repo: https://github.com/te-industry-tech-office/junction26-messagepack-csharp
 
@@ -17,10 +17,12 @@ confidential: false
 # say `met` with verified evidence for a clause to be proven. role: adjudicator = reads only the disputed items
 # (with both sides' cited evidence and the engine's verification) when reviewers disagree; it can add reasons
 # and route to a human, never clear anything.
+# model + prompt_version are the reviewer versions this signed mandate trusts at the area caps (trust.release_gate):
+# a review by any other version holds every area at `ask` until that version passes the seeded-defect set.
 reviewers:
-  claude:   {vendor: Anthropic, model: claude-opus-5-5, role: reviewer, self_hostable: false}
-  codex:    {vendor: OpenAI, model: gpt-5-codex, role: reviewer, self_hostable: false}
-  nemotron: {vendor: NVIDIA, model: nvidia/nemotron-3.5-super-vl-120b-a12b, role: reviewer, self_hostable: true,
+  claude:   {vendor: Anthropic, model: claude-opus-5-5, prompt_version: review-v1, role: reviewer, self_hostable: false}
+  codex:    {vendor: OpenAI, model: GPT-6, prompt_version: review-v1, role: reviewer, self_hostable: false}
+  nemotron: {vendor: NVIDIA, model: nvidia/nemotron-3.5-super-vl-120b-a12b, prompt_version: review-v1, role: reviewer, self_hostable: true,
              note: "open weights; called on NVIDIA's hosted API here, a confidential repo must point it at a self-hosted endpoint"}
   gemini:   {vendor: Google, model: gemini-4-hydrogen, role: adjudicator, self_hostable: false}
 
@@ -47,7 +49,8 @@ areas:
     paths: ["src/MessagePack.SourceGenerator/**", "src/MessagePack.Analyzers*/**"]
     sensitivity: high
     max_ai_tier: notify
-    checks: [build, tests.targeted, tests.fail_without_fix]
+    # tests.full_suite added in v3: 4 seeded defects were caught only by the full suite (measurement/results.json)
+    checks: [build, tests.targeted, tests.fail_without_fix, tests.full_suite]
   build:
     description: Build, packaging and CI configuration
     owner: Rene
@@ -91,6 +94,7 @@ security_sensitive_paths:
 requirement_checks:
   functional: [build, tests.targeted]
   non-functional: [build]
+  docs: [docs.anchors]            # documentation clauses: a docs-only change has no build or tests to run
   intent: []
 
 decision:
@@ -99,10 +103,26 @@ decision:
   reviewers_required: all_participating
   min_verified_evidence: 1        # per reviewer verdict; fewer -> thin_evidence
   code_line_tolerance: 3          # a code quote may sit up to N lines from the cited line
+  # Code evidence must cite head or base in a file the change touches; base may also cite these context files.
+  # Only substantive items count: code quotes, tests with a claimed outcome, checks with a claimed status (R7).
+  base_context_files: []
   refused_clause_tier: ask        # any clause the AI could not prove
-  reviewer_refusal_tier: ask      # any topic a reviewer explicitly refused to decide
+  # A reviewer refusal routes `ask` if it names a clause (`req`), is marked `blocking: true`, or its topic names a
+  # mandated check or one of refusal_ask_terms. Any other refusal is out of scope: shown, in residual risk, and
+  # it routes out_of_scope_refusal_tier, so the owner is still told (never silent).
+  reviewer_refusal_tier: ask
+  out_of_scope_refusal_tier: notify
+  refusal_ask_terms: [security, untrusted, unsafe, deserializ, public api, breaking, binary compat, runtime, crash, data loss]
+  held_before_tier: notify        # a clause met, but already met before the change: not achieved by it
   finding_tiers: {blocker: ask, major: ask, minor: notify, info: silent}
   blocker_confirmed_tier: block   # blocker verified by both reviewers, or backed by a failing check
+
+# Supply chain (v4). deps.delta (stage 1) diffs the restored NuGet graph of base and head. A package name or version
+# the change adds or moves goes to a human unless it is listed here (a name allows any version, name@version only
+# that one; case-insensitive). deps.delta is deliberately not an area check: a dependency change goes to the owner
+# as a supply-chain question (rule dependency-change), it is not a failed mandated check.
+supply_chain:
+  allowed_new_dependencies: []
 
 # Hard rules. `when` names a predicate in countersign/decide.py (RULES); `value` is its threshold.
 rules:
@@ -121,6 +141,17 @@ rules:
      message: "A check this area mandates did not run (skipped, errored or absent)"}
   - {id: mandate-not-signed, when: mandate_unsigned, tier: ask,
      message: "The mandate is not validly signed by its owner, so the AI has no clearance rights"}
+  # injection_scan (stage 1) fails when the diff or commit message holds text addressed to automated reviewers.
+  # The reviewers read it, so the engine also marks their verdicts untrusted: no clause can be proven.
+  - {id: R-INJECT, when: injection_found, tier: block,
+     message: "Text addressed to automated reviewers found in the change: reviewers saw planted instructions, their verdicts don't count"}
+  # Supply chain (v4), from the build: what no code reviewer reads. Each only makes routing stricter.
+  - {id: dependency-change, when: deps_unallowed, tier: ask,
+     message: "The change adds or moves a package (or feed) the mandate does not allow: the owner reviews the supply chain"}
+  - {id: new-advisory, when: deps_new_vulnerability, tier: block,
+     message: "The change brings in a package version with a known advisory not on base"}
+  - {id: build-egress-violation, when: egress_violation, tier: block,
+     message: "The build tried to reach a host outside its network policy"}
 
 # Risk score: additive, every point has a printed reason. Bands map to tiers.
 risk:
@@ -139,10 +170,24 @@ risk:
   per_failed_check: 25
   thresholds: {notify: 15, ask: 40, block: 130}   # score >= threshold -> that tier; blocks normally come from hard rules
 
+# Trust stages per area: ask -> notify -> silent, never above the area's max_ai_tier (where each area starts).
+# Drop one stage (and start probation) on: an escape on an AI-cleared change, a disagreeing spot-check, or a
+# canary run where the panel missed a seeded defect. Climb one stage when the next stage's row holds:
+#   agreeing_spotchecks  in a row since the last drop or climb
+#   min_agreement        share of agreeing spot-checks over the last agreement_window spot-checks
+#   no_escapes_in_last   changes (signoffs + spot-checks) in the area since the last escape
+# v3 (from the measurement, docs/MEASUREMENT.md): 3 agreeing spot-checks restored clearance within days while
+# reviewers had drifted; 20, plus weekly canaries, brought simulated escapes back to the full-review baseline.
 trust:
-  escape_cap: ask                         # an escape on an AI-cleared change drops the area to this
-  disagree_tightens_by: 1                 # a disagreeing spot-check tightens the cap one step
-  restore_after_agreeing_spotchecks: 3    # consecutive agreeing spot-checks needed to restore the mandate cap
+  stages:
+    ask:    {entry: "every area after a drop; every area while a reviewer version is not released"}
+    notify: {agreeing_spotchecks: 20, min_agreement: 0.95, agreement_window: 40, no_escapes_in_last: 50}
+    silent: {agreeing_spotchecks: 40, min_agreement: 0.98, agreement_window: 80, no_escapes_in_last: 100}
+  # Canaries: seeded defects (evidence/*-mut*) sent through the reviewer panel every week per area, recorded with
+  # `countersign canary`. Any miss drops a stage. A run that catches at least min_catch_rate of the set also
+  # releases the reviewer versions it ran with (a new model or prompt_version restarts at ask until then).
+  canaries: {per_week_per_area: 2}
+  release_gate: {seeded_set: "evidence/*-mut*", min_catch_rate: 1.0}
 
 # Never checked by this pipeline; printed in every pack under "not checked".
 known_gaps:

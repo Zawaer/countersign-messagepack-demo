@@ -16,7 +16,7 @@ from . import keys
 from .common import Workspace, canonical, now_iso, read_json, sha256_hex
 
 GENESIS = "0" * 64
-TYPES = {"signoff", "spotcheck", "escape", "mandate_change"}
+TYPES = {"signoff", "spotcheck", "escape", "canary", "mandate_change"}
 
 
 def read(ws: Workspace) -> list[dict]:
@@ -62,6 +62,12 @@ def verify(ws: Workspace) -> tuple[list[str], list[str]]:
         except json.JSONDecodeError:
             problems.append(f"line {n}: not valid JSON")
             continue
+        if not isinstance(e, dict):
+            problems.append(f"line {n}: not a ledger entry (expected a JSON object)")
+            prev = None
+            continue
+        if e.get("type") not in TYPES:
+            problems.append(f"line {n}: unknown entry type {e.get('type')!r}")
         if e.get("seq") != n:
             problems.append(f"line {n}: seq is {e.get('seq')}, expected {n} (entry removed, inserted or reordered)")
         if e.get("prev") != prev:
@@ -73,9 +79,19 @@ def verify(ws: Workspace) -> tuple[list[str], list[str]]:
             problems.append(f"line {n}: {why}")
         prev = e.get("hash")
         # A signed pack that was changed afterwards is not a broken ledger, but the signature no longer covers it.
-        p = e.get("payload", {})
+        p = e.get("payload")
+        if not isinstance(p, dict):
+            problems.append(f"line {n}: payload is not an object")
+            continue
         if e.get("type") == "signoff" and p.get("pack_path"):
-            pack_file = ws.root / p["pack_path"]
-            if pack_file.exists() and sha256_hex(canonical(read_json(pack_file))) != p.get("pack_sha256"):
-                warnings.append(f"line {n}: {p['pack_path']} changed since {e['signer']} signed it (re-review needed)")
+            pack_file = (ws.root / str(p["pack_path"])).resolve()
+            if not pack_file.is_relative_to(ws.root.resolve()):
+                problems.append(f"line {n}: pack_path {p['pack_path']!r} points outside the workspace")
+                continue
+            try:
+                current = sha256_hex(canonical(read_json(pack_file))) if pack_file.is_file() else None
+            except (OSError, ValueError):
+                current = "unreadable"
+            if current is not None and current != p.get("pack_sha256"):
+                warnings.append(f"line {n}: {p['pack_path']} changed since {e.get('signer')} signed it (re-review needed)")
     return problems, warnings

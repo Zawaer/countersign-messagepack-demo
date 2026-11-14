@@ -127,12 +127,20 @@ def replay(ws: Workspace, labels_path: Path | None = None) -> dict:
     escapes = {e["pr"]: e for e in lab["escapes"]}
     excluded = {e["pr"] for e in lab.get("excluded", [])}
     dataset = load_labels(labels_path.with_name("dataset.yaml"))["dataset"]
+    import json
+    from datetime import datetime
+    created_path = labels_path.with_name("raw") / "created.json"
+    created = {p["number"]: p["createdAt"] for p in json.loads(created_path.read_text())} if created_path.exists() else {}
+    merged_at = {p["number"]: p["mergedAt"] for p in json.loads((labels_path.with_name("raw") / "prs.json").read_text())}
+    iso = lambda t: datetime.fromisoformat(t.replace("Z", "+00:00"))  # noqa: E731
     rows = []
     for pr in dataset:
         if pr["number"] in excluded:
             continue
         row = {"pr": pr["number"], "title": pr["title"], "merged": pr["merged"], "url": f"{UPSTREAM}/pull/{pr['number']}",
-               "escape": pr["number"] in escapes, "confidence": escapes.get(pr["number"], {}).get("confidence")}
+               "escape": pr["number"] in escapes, "confidence": escapes.get(pr["number"], {}).get("confidence"),
+               "days_open_to_merge": round((iso(merged_at[pr["number"]]) - iso(created[pr["number"]])).total_seconds() / 86400, 2)
+               if pr["number"] in created else None}
         for mode in MODES:
             f = facts_from_diff(repo, pr, mode)
             r = route(f, m)
@@ -168,7 +176,17 @@ def summarize(rows: list[dict], mode: str, min_conf: str = "medium") -> dict:
         "escape_recall": round(table[(True, False)] / (table[(True, True)] + table[(True, False)]), 3) if table[(True, True)] + table[(True, False)] else None,
         "escape_rate_routed": _rate(table[(True, False)], table[(True, False)] + table[(False, False)]),
         "escape_rate_cleared": _rate(table[(True, True)], table[(True, True)] + table[(False, True)]),
+        "median_days_to_merge_upstream": {"cleared": _median([r["days_open_to_merge"] for r in rows if r[mode]["cleared"]]),
+                                          "routed": _median([r["days_open_to_merge"] for r in rows if not r[mode]["cleared"]])},
     }
+
+
+def _median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    k = len(xs) // 2
+    return round(xs[k] if len(xs) % 2 else (xs[k - 1] + xs[k]) / 2, 2)
 
 
 def _rate(a: int, b: int):
@@ -196,7 +214,9 @@ def to_markdown(r: dict) -> str:
                 f"- Routed to a human (ask/block): **{s['routed_to_humans']} of {s['n']}** ({s['share_routed_to_humans']:.0%}); "
                 f"tiers: " + ", ".join(f"{t} {k}" for t, k in s["tiers"].items()),
                 f"- Escapes in the dataset: {s['escapes']} ({s['escapes_high_confidence']} high-confidence)",
-                f"- **Escapes Countersign would have cleared: {c['escape_cleared']} of {s['escapes']}**", "",
+                f"- **Escapes Countersign would have cleared: {c['escape_cleared']} of {s['escapes']}**",
+                f"- Upstream's real time from PR opened to merged (median days, human review as it happened): "
+                f"cleared bucket {s['median_days_to_merge_upstream']['cleared']}, routed bucket {s['median_days_to_merge_upstream']['routed']}", "",
                 "| | routed to human | cleared by AI |", "|---|---:|---:|",
                 f"| escape (reverted / follow-up fix) | {c['escape_routed']} | {c['escape_cleared']} |",
                 f"| no escape found | {c['clean_routed']} | {c['clean_cleared']} |", ""]

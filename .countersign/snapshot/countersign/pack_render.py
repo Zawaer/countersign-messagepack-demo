@@ -72,6 +72,10 @@ def card(p: dict) -> str:
         out.append("  nothing")
     for r in _rulings(p):
         out.append(f"  adjudicator {_name(p['adjudication']['reviewer'])} on {r.get('dispute')}: {_ruling_text(r)}")
+    sc = p.get("supply_chain")
+    if sc:
+        out += ["", f"Supply chain (from the build): {sc['line']}"]
+        out += [f"  NEW ADVISORY {v['package']} {v['version']} {v['severity']} {v['id']}" for v in (sc.get("deps") or {}).get("vulnerabilities_new", [])]
     out += ["", "Not checked:"] + [f"  {x['id']}: {x['reason']}" for x in c["not_checked"]]
     if c["known_gaps"]:
         out.append(f"  standing gaps: {', '.join(c['known_gaps'])}")
@@ -271,12 +275,56 @@ def _md_full(p: dict) -> list[str]:
     return out
 
 
+def _md_supply(p: dict) -> list[str]:
+    """One line, new advisories in plain sight, everything else in a fold."""
+    sc = p.get("supply_chain")
+    if not sc:
+        return []
+    out = ["<a id=\"supply-chain\"></a>**Supply chain (from the build):** " + _cell(sc["line"]), ""]
+    deps = sc.get("deps") or {}
+    for v in deps.get("vulnerabilities_new", []):
+        out.append(f"- **New advisory** {v['package']} {v['version']} ({v['severity']}): [{v['id']}]({v['advisory']})")
+    out += [f"- **{r['tier']}** `{r['id']}`: {_cell(r['evidence'])}" for r in sc["rules"]]
+    if deps.get("vulnerabilities_new") or sc["rules"]:
+        out.append("")
+    body = []
+    if deps:
+        body += [f"`deps.delta` **{deps['status']}**: {_cell(deps['summary'])}", ""]
+        if deps["packages"]:
+            body += ["| Package | Base | Head | Direct | Via |", "|---|---|---|---|---|"]
+            body += [f"| {_cell(x['package'])} | {_cell(x['base'] or '-')} | {_cell(x['head'])} | {'direct' if x['direct'] else 'transitive'} | {_cell(x['via'])} |"
+                     for x in deps["packages"]]
+            body.append("")
+        body += [f"- New project: `{x}`" for x in deps["projects_added"]]
+        body += [f"- New project reference: `{x['project']}` -> `{x['references']}`" for x in deps["project_references_added"]]
+        body += [f"- Build inputs changed: {k}: {_cell(v.get('base'))} -> {_cell(v.get('head'))}" for k, v in deps["build_inputs_changed"].items()]
+        if deps["vulnerabilities_also_on_base"]:
+            body.append(f"- Already on base ({len(deps['vulnerabilities_also_on_base'])}): "
+                        + ", ".join(f"{v['package']} {v['version']} {v['severity']} {v['id']}" for v in deps["vulnerabilities_also_on_base"]))
+        if (deps.get("sbom") or {}).get("head"):
+            body.append(f"- SBOMs (CycloneDX): `{deps['sbom']['base']}`, `{deps['sbom']['head']}`")
+    eg = sc.get("egress")
+    if eg:
+        pol = eg["policy"]
+        body.append(f"- `build.egress` **{eg['status']}**: default {pol.get('default')}, presets {pol.get('presets')}, "
+                    f"{len(pol.get('tls_server_name_patterns') or [])} TLS host patterns"
+                    + (f"; run {eg['run']}" if eg.get("run") else "") + (f"; blocked: {', '.join(eg['blocked_hosts'])}" if eg["blocked_hosts"] else "")
+                    + (f"; policy sha256 `{eg['policy_sha256'][:12]}`" if eg.get("policy_sha256") else ""))
+    net = sc.get("craci_network")
+    if net:
+        body.append(f"- `craci.network` **{net['status']}**: {_cell(net['summary'])}")
+        body += [f"  - proxy violation: {_cell(v.get('host'))} ({_cell(v.get('reason'))})" for v in net["proxy_violations"]]
+    if body:
+        out += ["<details><summary>Supply-chain detail</summary>", "", *body, "", "</details>", ""]
+    return out
+
+
 MD_LIMIT = 60000  # GitHub comments stop at 65536 characters
 
 
 def to_markdown(p: dict) -> str:
     """The card in plain GitHub Markdown, everything else in <details>. Shrinks to stay under a PR comment's limit."""
-    head = _md_card(p)
+    head = _md_card(p) + _md_supply(p)
     for parts in ((_md_trust(p), _md_panel(p), _md_evidence(p), _md_full(p)),
                   (_md_trust(p), _md_panel(p), _md_evidence(p, excerpts=False), _md_full(p)),
                   (_md_trust(p), _md_panel(p), _md_full(p)),
@@ -290,57 +338,60 @@ def to_markdown(p: dict) -> str:
 # --- HTML (self-contained, no JS, phone first, light and dark) ------------------------------
 
 CSS = """
-:root{color-scheme:light dark;--fg:#1b1f27;--mut:#566070;--bg:#fff;--sf:#f4f5f7;--sf2:#eceef2;--line:#d9dde3;--link:#1d4fb8;--focus:#1d4fb8;
---ok:#1d6b35;--okb:#e3f3e7;--warn:#8a4b00;--warnb:#fdf0dc;--bad:#a8231b;--badb:#fce6e4;--held:#34509a;--heldb:#e5ebfa;--mark:#fff1b3;
---t-silent:#2d6a3a;--t-notify:#2457b8;--t-ask:#8a4b00;--t-block:#a8231b}
-@media (prefers-color-scheme:dark){:root{--fg:#e6e9ef;--mut:#a2abb9;--bg:#101318;--sf:#191d24;--sf2:#20252e;--line:#2d333d;--link:#8fb3ff;--focus:#8fb3ff;
---ok:#6fd08c;--okb:#15301e;--warn:#f2b45a;--warnb:#33270f;--bad:#ff9189;--badb:#3a1a18;--held:#a9bfff;--heldb:#1c2540;--mark:#4a3f10;
---t-silent:#2f7a43;--t-notify:#2e63c9;--t-ask:#9a5600;--t-block:#b9322a}}
+:root{color-scheme:light;--fg:#1f2328;--mut:#59636e;--bg:#fff;--sf:#f6f8fa;--sf2:#eff2f5;--line:#d1d9e0;--link:#0969da;--focus:#0969da;
+--ok:#1a7f37;--okb:#dafbe1;--warn:#9a6700;--warnb:#fff8c5;--bad:#d1242f;--badb:#ffebe9;--held:#59636e;--heldb:#eff2f5;--mark:#fff8c5;
+--t-silent:#1a7f37;--t-notify:#1a7f37;--t-ask:#9a6700;--t-block:#d1242f;--t-silentb:#dafbe1;--t-notifyb:#dafbe1;--t-askb:#fff8c5;--t-blockb:#ffebe9;
+--sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--fg:#f0f6fc;--mut:#9198a1;--bg:#0d1117;--sf:#151b23;--sf2:#212830;--line:#3d444d;--link:#4493f8;--focus:#4493f8;
+--ok:#3fb950;--okb:#12261e;--warn:#d29922;--warnb:#272115;--bad:#f85149;--badb:#25171c;--held:#9198a1;--heldb:#212830;--mark:#3b2e0a;
+--t-silent:#3fb950;--t-notify:#3fb950;--t-ask:#d29922;--t-block:#f85149;--t-silentb:#12261e;--t-notifyb:#12261e;--t-askb:#272115;--t-blockb:#25171c}}
 *{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
-body{margin:0;overflow-wrap:anywhere;font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--fg);background:var(--bg)}
-main{max-width:860px;margin:0 auto;padding:8px 10px 48px}
-a{color:var(--link);text-underline-offset:2px}a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:4px}
-h1{font-size:1.08rem;line-height:1.3;margin:.45em 0 .2em}h2{font-size:1.15rem;margin:1.8em 0 .5em;padding-bottom:.25em;border-bottom:1px solid var(--line)}
-h3{font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);margin:1.1em 0 .35em}h4{font-size:1rem;margin:0 0 .3em}
-p{margin:.35em 0}ul,ol{margin:.2em 0;padding-left:1.25em}li{margin:.2em 0}.mut{color:var(--mut)}.sm{font-size:.88rem}
-code,pre,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.84em}code{overflow-wrap:anywhere}
-.eyebrow{font-size:.85rem;color:var(--mut);margin:0}.story{font-size:.86rem;margin:.2em 0 .4em}
-nav.jump{font-size:.85rem;margin:.5em 0 0;display:flex;flex-wrap:wrap;gap:.25em .9em}
-.banner{background:var(--t-block);color:#fff;padding:6px 12px;border-radius:8px;font-weight:600}
-.card{background:var(--sf);border:1px solid var(--line);border-radius:14px;padding:10px 12px 12px;margin:4px 0 12px}
-.verdict{display:flex;flex-wrap:wrap;align-items:center;gap:.4em .7em}
-.tier{display:inline-block;color:#fff;border-radius:999px;padding:3px 14px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;font-size:.95rem}
-.tier.sm{font-size:.72rem;padding:1px 8px}
-.t-silent{background:var(--t-silent)}.t-notify{background:var(--t-notify)}.t-ask{background:var(--t-ask)}.t-block{background:var(--t-block)}
-ol.reasons{padding-left:1.3em}ol.reasons li{margin:.3em 0}
-ul.rows{list-style:none;padding:0;margin:0}ul.rows>li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.15em .6em;align-items:start;padding:.4em 0;border-top:1px solid var(--line)}
+body{margin:0;overflow-wrap:anywhere;font:15px/1.5 var(--sans);color:var(--fg);background:var(--bg);font-variant-numeric:tabular-nums}
+main{max-width:880px;margin:0 auto;padding:8px 16px 48px}
+a{color:var(--link);text-underline-offset:2px}a:focus-visible,summary:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:3px}
+h1{font-size:20px;line-height:1.25;font-weight:600;margin:8px 0 4px}h2{font-size:20px;line-height:1.25;font-weight:600;margin:32px 0 8px;padding-bottom:8px;border-bottom:1px solid var(--line)}
+h3{font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;color:var(--mut);margin:16px 0 4px}h4{font-size:16px;font-weight:600;margin:0 0 4px}
+p{margin:4px 0 8px}ul,ol{margin:4px 0;padding-left:24px}li{margin:4px 0}.mut{color:var(--mut)}.sm{font-size:14px}
+code,pre,.mono{font-family:var(--mono);font-size:.875em}code{overflow-wrap:anywhere;background:var(--sf);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+pre code{background:none;border:0;padding:0}
+.eyebrow{font:12px/1.5 var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--mut);margin:0}.story{font-size:14px;margin:4px 0 8px}
+nav.jump{font-size:14px;margin:8px 0 0;display:flex;flex-wrap:wrap;gap:4px 16px}
+.banner{background:var(--badb);color:var(--bad);border:1px solid var(--bad);padding:8px 12px;border-radius:6px;font-weight:600}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:12px 16px 16px;margin:4px 0 16px}
+.verdict{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.tier{display:inline-block;border:1px solid currentColor;border-radius:999px;padding:2px 12px;font:600 14px/20px var(--mono);letter-spacing:.02em;text-transform:uppercase}
+.tier.sm{font-size:12px;line-height:18px;padding:0 8px}
+.t-silent{color:var(--t-silent);background:var(--t-silentb)}.t-notify{color:var(--t-notify);background:var(--t-notifyb)}.t-ask{color:var(--t-ask);background:var(--t-askb)}.t-block{color:var(--t-block);background:var(--t-blockb)}
+ol.reasons{padding-left:24px}ol.reasons li{margin:4px 0}
+ul.rows{list-style:none;padding:0;margin:0}ul.rows>li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 ul.rows>li:first-child{border-top:0}
-.st,.sev{display:inline-flex;align-items:center;gap:.3em;white-space:nowrap;font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;border-radius:6px;padding:1px 7px;margin-top:.15em}
+.st,.sev{display:inline-flex;align-items:center;gap:4px;white-space:nowrap;font:600 12px/18px var(--mono);text-transform:uppercase;border:1px solid currentColor;border-radius:999px;padding:0 8px;margin-top:2px}
 .st-proven{color:var(--ok);background:var(--okb)}.st-refused{color:var(--warn);background:var(--warnb)}.st-notmet{color:var(--bad);background:var(--badb)}.st-held{color:var(--held);background:var(--heldb)}
 .sev-blocker,.sev-major{color:var(--bad);background:var(--badb)}.sev-minor{color:var(--warn);background:var(--warnb)}.sev-info{color:var(--held);background:var(--heldb)}
-.chips{display:flex;flex-wrap:wrap;gap:.3em;margin-top:.2em}
-.chip{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.74rem;border:1px solid var(--line);background:var(--bg);border-radius:6px;padding:1px 6px;text-decoration:none;overflow-wrap:anywhere}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+.chip{font-family:var(--mono);font-size:12px;border:1px solid var(--line);background:var(--sf);border-radius:6px;padding:0 6px;text-decoration:none;overflow-wrap:anywhere}
 .chip.bad{border-style:dashed;color:var(--mut)}
-.sign{border-left:4px solid var(--t-ask);background:var(--bg);border-radius:8px;padding:8px 12px;margin-top:12px}
+.sign{border:1px solid var(--line);border-left:3px solid var(--t-ask);background:var(--sf);border-radius:6px;padding:8px 12px;margin-top:16px}
 .sign q{font-style:italic;quotes:none}
-pre{background:var(--sf);border:1px solid var(--line);padding:8px 10px;border-radius:8px;overflow-x:auto;margin:.4em 0}
-pre.code{padding:6px 0}pre.code span{display:block;padding:0 10px 0 0;white-space:pre}
+pre{background:var(--sf);border:1px solid var(--line);padding:8px 12px;border-radius:6px;overflow-x:auto;margin:8px 0}
+pre.code{padding:8px 0}pre.code span{display:block;padding:0 12px 0 0;white-space:pre}
 pre.code span i{display:inline-block;min-width:4.2em;padding:0 .8em 0 .5em;text-align:right;color:var(--mut);font-style:normal;user-select:none}
-pre.code span.hl{background:var(--mark)}pre.code span.hl i{color:var(--fg);font-weight:700}
-article,.box{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:10px 0;background:var(--bg)}
-article.c-refused,article.c-notmet{border-left:5px solid var(--warn)}article.c-notmet{border-left-color:var(--bad)}article.c-proven{border-left:5px solid var(--ok)}article.c-held{border-left:5px solid var(--held)}
-.callout{border-left:5px solid var(--t-ask);background:var(--warnb);border-radius:8px;padding:8px 12px;margin:8px 0}
-blockquote{margin:.3em 0;padding:.2em .8em;border-left:3px solid var(--line);color:var(--fg)}
-ol.chain{padding-left:1.3em}ol.chain>li{margin:.45em 0}
-.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:.88rem}th,td{text-align:left;padding:5px 7px;border-bottom:1px solid var(--line);vertical-align:top}
-th{font-weight:600;color:var(--mut)}th,td{overflow-wrap:break-word}td.n{text-align:right;font-variant-numeric:tabular-nums}
+pre.code span.hl{background:var(--mark);box-shadow:inset 3px 0 0 var(--t-ask)}pre.code span.hl i{color:var(--fg);font-weight:600}
+article,.box{border:1px solid var(--line);border-radius:6px;padding:12px 16px;margin:8px 0;background:var(--bg)}
+article.c-refused,article.c-notmet{border-left:3px solid var(--warn)}article.c-notmet{border-left-color:var(--bad)}article.c-proven{border-left:3px solid var(--ok)}article.c-held{border-left:3px solid var(--held)}
+.callout{border:1px solid var(--line);border-left:3px solid var(--t-ask);background:var(--sf);border-radius:6px;padding:8px 12px;margin:8px 0}
+blockquote{margin:4px 0;padding:4px 12px;border-left:3px solid var(--line);color:var(--mut)}
+ol.chain{padding-left:24px}ol.chain>li{margin:8px 0}
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:6px;margin:8px 0}table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}tr:last-child td{border-bottom:0}
+th{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--mut);background:var(--sf)}th,td{overflow-wrap:break-word}td.n{text-align:right}
 .v-met{color:var(--ok);font-weight:600}.v-not_met{color:var(--bad);font-weight:600}.v-cannot_determine,.v-none{color:var(--warn);font-weight:600}
-details.fold{margin-top:2em;border-top:1px solid var(--line);padding-top:.6em}details.fold>summary{font-weight:700;cursor:pointer;padding:.4em 0}
-details.mini>summary{cursor:pointer;color:var(--link);font-size:.88rem}
-:target{scroll-margin-top:10px;outline:3px solid var(--focus);outline-offset:3px;border-radius:8px}
+details.fold{margin-top:32px;border-top:1px solid var(--line);padding-top:8px}details.fold>summary{font-weight:600;cursor:pointer;padding:8px 0}
+details.mini>summary{cursor:pointer;color:var(--link);font-size:14px}
+:target{scroll-margin-top:8px;outline:2px solid var(--focus);outline-offset:4px;border-radius:6px}
 .ok{color:var(--ok);font-weight:600}.no{color:var(--bad);font-weight:600}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-@media (min-width:720px){body{font-size:16px}main{padding:20px 24px 64px}h1{font-size:1.4rem}.story{font-size:.95rem}.card{padding:16px 20px 18px}}
+@media (min-width:720px){body{font-size:16px}main{padding:24px 32px 64px}h1{font-size:24px}.story{font-size:15px}.card{padding:16px 24px 24px}}
 @media print{details{display:block}details>*{display:block}.jump{display:none}}
 """
 
@@ -545,6 +596,53 @@ def _html_ev(e: dict) -> str:
     return f'<article id="{_e(e["ref"])}">{head}{body}</article>'
 
 
+def _html_supply(p: dict) -> str:
+    """One summary line, new advisories and the supply-chain rules that fired in plain sight, the rest folded."""
+    sc = p.get("supply_chain")
+    if not sc:
+        return ""
+    cls = {"fail": "no", "pass": "ok"}.get(sc["status"], "mut")
+    deps = sc.get("deps") or {}
+    top = f'<p class="{cls}">{_e(sc["line"])}</p>'
+    vul = "".join(f'<li><span class="sev sev-{"major" if v["severity"] in ("high", "critical") else "minor"}">{_e(v["severity"])}</span> '
+                  f'<b>New advisory</b> {_e(v["package"])} {_e(v["version"])}: <a href="{_e(v["advisory"])}">{_e(v["id"])}</a></li>'
+                  for v in deps.get("vulnerabilities_new", []))
+    rules = "".join(f'<li>{_tier(r["tier"], True)} <code>{_e(r["id"])}</code> {_e(r["evidence"])}</li>' for r in sc["rules"])
+    if vul or rules:
+        top += f'<ul class="sm">{vul}{rules}</ul>'
+    body = ""
+    if deps:
+        body += f'<p class="sm"><code>deps.delta</code> <b class="{"ok" if deps["status"] == "pass" else "no"}">{_e(deps["status"])}</b>: {_e(deps["summary"])}</p>'
+        if deps["packages"]:
+            body += _table(["Package", "Base", "Head", "Direct", "Via"],
+                           [[_e(x["package"]), _e(x["base"] or "-"), _e(x["head"]), "direct" if x["direct"] else "transitive",
+                             f'<span class="mono sm">{_e(x["via"])}</span>'] for x in deps["packages"]], caption="Packages added or moved")
+        items = [f"New project <code>{_e(x)}</code>" for x in deps["projects_added"]]
+        items += [f"New project reference <code>{_e(x['project'])}</code> &rarr; <code>{_e(x['references'])}</code>" for x in deps["project_references_added"]]
+        items += [f"Build inputs changed: {_e(k)}: {_e(v.get('base'))} &rarr; {_e(v.get('head'))}" for k, v in deps["build_inputs_changed"].items()]
+        if (deps.get("sbom") or {}).get("head"):
+            items.append(f'SBOMs (CycloneDX): <span class="mono">{_e(deps["sbom"]["base"])}</span>, <span class="mono">{_e(deps["sbom"]["head"])}</span>')
+        body += f'<ul class="sm">{"".join(f"<li>{x}</li>" for x in items)}</ul>' if items else ""
+        if deps["vulnerabilities_also_on_base"]:
+            body += (f'<details class="mini"><summary>Already on base ({len(deps["vulnerabilities_also_on_base"])} advisories)</summary><ul class="sm">'
+                     + "".join(f'<li>{_e(v["package"])} {_e(v["version"])} {_e(v["severity"])} <a href="{_e(v["advisory"])}">{_e(v["id"])}</a></li>'
+                               for v in deps["vulnerabilities_also_on_base"]) + "</ul></details>")
+    eg = sc.get("egress")
+    if eg:
+        pol = eg["policy"]
+        body += (f'<p class="sm"><code>build.egress</code> <b class="{"ok" if eg["status"] == "pass" else "no"}">{_e(eg["status"])}</b>: '
+                 f'default {_e(pol.get("default"))}, presets {_e(pol.get("presets"))}, TLS hosts {_e(", ".join(pol.get("tls_server_name_patterns") or []))}'
+                 + (f'; <a href="{_e(eg["run"])}">provenance run</a>' if eg.get("run") else "")
+                 + (f'; <span class="no">blocked: {_e(", ".join(eg["blocked_hosts"]))}</span>' if eg["blocked_hosts"] else "")
+                 + (f' <span class="mono mut">policy {_e(eg["policy_sha256"][:12])}</span>' if eg.get("policy_sha256") else "") + "</p>")
+    net = sc.get("craci_network")
+    if net:
+        body += (f'<p class="sm"><code>craci.network</code> <b class="{"ok" if net["status"] == "pass" else "no" if net["status"] == "fail" else "mut"}">'
+                 f'{_e(net["status"])}</b>: {_e(net["summary"])}</p>'
+                 + "".join(f'<p class="sm no">proxy violation: {_e(v.get("host"))} ({_e(v.get("reason"))})</p>' for v in net["proxy_violations"]))
+    return top + (f'<details class="mini"><summary>Supply-chain detail</summary>{body}</details>' if body else "")
+
+
 def _html_full(p: dict) -> str:
     ms = p["mandate"]["signature"]
     rp = p["reviewer_panel"]
@@ -599,7 +697,9 @@ def to_html(p: dict) -> str:
 {'<p class="banner">Simulated inputs: fixture data, not a real run</p>' if _sim(p) else ""}
 {mut}
 {_html_card(p)}
-<nav class="jump" aria-label="Sections"><a href="#trust">Where the trust comes from</a><a href="#panel">Reviewer panel</a><a href="#evidence">Evidence</a><a href="#full">Full detail</a></nav>
+<nav class="jump" aria-label="Sections"><a href="#supply-chain">Supply chain</a><a href="#trust">Where the trust comes from</a><a href="#panel">Reviewer panel</a><a href="#evidence">Evidence</a><a href="#full">Full detail</a></nav>
+<h2 id="supply-chain">Supply chain (from the build)</h2>
+{_html_supply(p)}
 <h2 id="trust">Where the trust comes from</h2>
 <p class="sm mut">For each requirement clause: the checks that passed, the tests that fail without the fix, and the reviewers who agreed with verified citations; for refused clauses, who disagreed and what would settle it.</p>
 {_html_trust(p)}

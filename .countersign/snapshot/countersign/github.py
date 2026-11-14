@@ -294,12 +294,21 @@ def cmd_check(a) -> int:
     return 0
 
 
-def verify_signed_entry(entry: dict, ws: Workspace, p: dict, pack_sha: str, decision: str, note: str) -> list[str]:
+def pr_binding(gh_repo: str, number: int, head_sha: str) -> dict:
+    """The signed fields that tie an entry to one pull request and its head commit (see verify_signed_entry)."""
+    return {"pr": f"https://github.com/{gh_repo}/pull/{number}", "pr_head": head_sha}
+
+
+def verify_signed_entry(entry: dict, ws: Workspace, p: dict, pack_sha: str, decision: str, note: str,
+                        binding: dict | None = None) -> list[str]:
     """Every reason this entry may not be appended. Empty list = it is the owner's signature over exactly this pack,
-    chained onto the current ledger tip."""
+    chained onto the current ledger tip, and (with `binding`) made for exactly this pull request and head commit, so a
+    signed comment copied to another PR is refused even when that PR's pack happens to hash the same."""
     errs = []
     entries = ledger.read(ws)
-    pl = entry.get("payload") or {}
+    if not isinstance(entry, dict) or not isinstance(entry.get("payload"), dict):
+        return ["signed block is not a ledger entry (expected a JSON object with a payload object)"]
+    pl = entry["payload"]
     expect = {"type": "signoff", "signer": p["owner"], "seq": len(entries) + 1,
               "prev": entries[-1]["hash"] if entries else ledger.GENESIS}
     for k, v in expect.items():
@@ -307,7 +316,7 @@ def verify_signed_entry(entry: dict, ws: Workspace, p: dict, pack_sha: str, deci
             errs.append(f"{k} is {entry.get(k)!r}, expected {v!r}" + (" (the ledger moved on: sign again)" if k in ("seq", "prev") else ""))
     want = {"change": p["change"], "pack_sha256": pack_sha, "decision": decision, "note": note, "tier": p["tier"],
             "mandate_sha256": p["mandate"]["sha256"], "statement": p["signoff"]["statement"]}
-    for k, v in want.items():
+    for k, v in {**want, **(binding or {})}.items():
         if pl.get(k) != v:
             errs.append(f"payload.{k} is {pl.get(k)!r}, expected {v!r}")
     if decision not in p["signoff"]["allowed_decisions"]:
@@ -356,7 +365,8 @@ def cmd_command(a) -> int:
         else:
             try:
                 entry = json.loads(block.group(1))
-                errs = verify_signed_entry(entry, ws, p, pack_sha, verb, note)
+                errs = verify_signed_entry(entry, ws, p, pack_sha, verb, note,
+                                           pr_binding(gh.repo, pr["number"], pr["head_sha"]))
             except (json.JSONDecodeError, AttributeError, TypeError) as e:
                 errs = [f"signed block is not a ledger entry: {e}"]
             if errs:
@@ -439,9 +449,9 @@ def cmd_sign_pr(a) -> int:
     if "\n" in a.note:
         raise SystemExit("keep the note on one line")
     pack_sha = sha256_hex(canonical(p))
-    entry = make_entry(ws, p, a.signer, a.decision, a.note, Path(a.key).expanduser().read_text(),
-                       {"pr": f"https://github.com/{a.gh_repo}/pull/{a.pr}", "pr_head": pr["head_sha"]})
-    errs = verify_signed_entry(entry, ws, p, pack_sha, a.decision, a.note)
+    binding = pr_binding(a.gh_repo, a.pr, pr["head_sha"])
+    entry = make_entry(ws, p, a.signer, a.decision, a.note, Path(a.key).expanduser().read_text(), binding)
+    errs = verify_signed_entry(entry, ws, p, pack_sha, a.decision, a.note, binding)
     if errs:
         raise SystemExit("the signed entry would be refused:\n  " + "\n  ".join(errs))
     body = (f"/countersign {a.decision} {a.note}\n\n{p['signoff']['statement']}\n\n<details><summary>Signed ledger entry "

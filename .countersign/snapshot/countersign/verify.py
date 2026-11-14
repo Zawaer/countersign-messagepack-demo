@@ -1,6 +1,13 @@
 """Stage 3: check every piece of evidence a reviewer cites. No verified evidence, no finding.
 
-Each evidence item comes back with `verified` (true/false) and a `note` saying exactly what was checked.
+Each evidence item comes back with `verified` (true/false), `substantive` (true/false) and a `note` saying exactly
+what was checked. Review JSON is untrusted model output (failure mode R7), so:
+- only `substantive` items count towards a verdict or a finding: a code quote at head or base in a file the change
+  touches, a test with a claimed outcome that matches, a check with a claimed status that matches. A requirement
+  quote shows the reviewer read the clause, not that the code meets it: it may verify, it never counts.
+- `rev` must be `head` or `base`; `file` must be a relative path inside the change's diff (base may also cite the
+  mandate's `decision.base_context_files`); git gets `--end-of-options`, so nothing a model writes becomes an option.
+- a malformed item (wrong types) is rejected with a note, never a crash.
 """
 
 from __future__ import annotations
@@ -15,8 +22,10 @@ def _norm(s: str) -> str:
 
 
 class Verifier:
-    def __init__(self, repo: str, facts: dict, requirements: dict, line_tolerance: int = 3):
+    def __init__(self, repo: str, facts: dict, requirements: dict, line_tolerance: int = 3, base_context_files: list[str] | None = None):
         self.repo, self.facts, self.tolerance = repo, facts, line_tolerance
+        self.diff_paths = {f["path"] for f in facts.get("diff", {}).get("by_file", [])}
+        self.base_context = set(base_context_files or [])
         self.reqs = {r["id"]: r for r in requirements.get("requirements", [])}
         self.checks = {c["id"]: c for c in facts.get("checks", [])}
         # every run of a test, per check: the same name can appear in tests.targeted (head, passed) and in
@@ -31,7 +40,7 @@ class Verifier:
     def _git_lines(self, rev: str, path: str) -> list[str] | None:
         key = (rev, path)
         if key not in self._files:
-            r = subprocess.run(["git", "-C", self.repo, "show", f"{rev}:{path}"], capture_output=True)
+            r = subprocess.run(["git", "-C", self.repo, "show", "--end-of-options", f"{rev}:{path}"], capture_output=True)
             self._files[key] = r.stdout.decode("utf-8", "replace").splitlines() if r.returncode == 0 else None
         return self._files[key]
 
@@ -46,13 +55,23 @@ class Verifier:
         return lines
 
     def code(self, item: dict) -> tuple[bool, str]:
-        rev_name = item.get("rev", "head")
-        rev = self.facts.get(rev_name, rev_name) if rev_name in ("head", "base") else rev_name
-        lines = self._git_lines(rev, item.get("file", ""))
-        lines = self._apply_mutation(lines, item.get("file", "")) if rev_name == "head" else lines
+        rev_name, path = item.get("rev", "head"), item.get("file", "")
+        if rev_name not in ("head", "base"):
+            return False, f"evidence must cite head or base, not {str(rev_name)[:40]!r}"
+        if not isinstance(path, str) or not path or path.startswith(("-", "/")) or ".." in path.split("/") or "\\" in path:
+            return False, f"not a relative repository path: {str(path)[:80]!r}"
+        if path not in self.diff_paths and not (rev_name == "base" and path in self.base_context):
+            return False, f"{path} is not in the change's diff" + (" (nor in base_context_files)" if rev_name == "base" else "")
+        if not isinstance(item.get("quote", ""), str) or isinstance(item.get("line", 0), bool) or not isinstance(item.get("line", 0), int):
+            return False, "malformed evidence item: line must be an integer and quote a string"
+        rev = self.facts.get(rev_name)
+        if not isinstance(rev, str) or not rev or rev.startswith("-"):
+            return False, f"facts.json has no usable {rev_name} revision"
+        lines = self._git_lines(rev, path)
+        lines = self._apply_mutation(lines, path) if rev_name == "head" else lines
         if lines is None:
-            return False, f"{item.get('file')} does not exist at {rev_name} ({rev}) in {self.repo}"
-        quote, line = _norm(item.get("quote", "")), int(item.get("line", 0))
+            return False, f"{path} does not exist at {rev_name} ({rev}) in {self.repo}"
+        quote, line = _norm(item.get("quote", "")), item.get("line", 0)
         if not quote:
             return False, "empty quote"
         lo, hi = max(1, line - self.tolerance), min(len(lines), line + self.tolerance)
@@ -119,23 +138,58 @@ class Verifier:
         return False, "issue text cannot be verified offline (not counted as evidence)"
 
     # --- dispatch -------------------------------------------------------
-    def item(self, item: dict) -> dict:
-        fn = getattr(self, str(item.get("kind")), None) if item.get("kind") in ("code", "test", "check", "requirement", "issue") else None
-        ok, note = fn(item) if fn else (False, f"unknown evidence kind {item.get('kind')!r}")
-        return {**item, "verified": ok, "note": note}
+    def item(self, item) -> dict:
+        if not isinstance(item, dict):
+            return {"kind": "malformed", "raw": str(item)[:200], "verified": False, "substantive": False, "note": "malformed evidence item: not an object"}
+        kind = item.get("kind")
+        fn = getattr(self, kind, None) if kind in ("code", "test", "check", "requirement", "issue") else None
+        try:
+            ok, note = fn(item) if fn else (False, f"unknown evidence kind {kind!r}")
+        except (TypeError, ValueError, AttributeError, KeyError) as e:
+            ok, note = False, f"malformed evidence item ({type(e).__name__})"
+        return {**item, "verified": ok, "substantive": ok and self.substantive(item), "note": note}
+
+    @staticmethod
+    def substantive(item: dict) -> bool:
+        """Evidence about the change itself. Only these count towards min_verified_evidence and a finding's support."""
+        kind = item.get("kind")
+        if kind == "code":
+            return True  # already confined to head/base and the change's files
+        if kind == "test":
+            return bool(item.get("outcome"))
+        if kind == "check":
+            return bool(item.get("status") or item.get("outcome"))
+        return False  # requirement quotes, issue text
+
+
+def _items(x) -> list:
+    return x if isinstance(x, list) else []
 
 
 def verify_review(review: dict, v: Verifier) -> dict:
-    """Annotate one reviewer's output. Findings with no verified evidence are marked rejected (kept, not dropped)."""
+    """Annotate one reviewer's output. Findings with no substantive verified evidence are marked rejected (kept, not
+    dropped). `verified_count` counts every verified item (for display); `substantive_count` is what decides."""
     out = deepcopy(review)
-    for verdict in out.get("requirement_verdicts", []):
-        verdict["evidence"] = [v.item(e) for e in verdict.get("evidence", [])]
+    out["requirement_verdicts"] = [x for x in _items(out.get("requirement_verdicts")) if isinstance(x, dict)]
+    out["findings"] = [x for x in _items(out.get("findings")) if isinstance(x, dict)]
+    for verdict in out["requirement_verdicts"]:
+        verdict["evidence"] = [v.item(e) for e in _items(verdict.get("evidence"))]
         verdict["verified_count"] = sum(e["verified"] for e in verdict["evidence"])
-    for f in out.get("findings", []):
-        f["evidence"] = [v.item(e) for e in f.get("evidence", [])]
+        verdict["substantive_count"] = sum(e["substantive"] for e in verdict["evidence"])
+    for f in out["findings"]:
+        f["evidence"] = [v.item(e) for e in _items(f.get("evidence"))]
         f["verified_count"] = sum(e["verified"] for e in f["evidence"])
-        f["status"] = "verified" if f["verified_count"] else "rejected"
+        f["substantive_count"] = sum(e["substantive"] for e in f["evidence"])
+        f["status"] = "verified" if f["substantive_count"] else "rejected"
         f["reviewer"] = out.get("reviewer")
+        f.setdefault("id", "?")
+        f["severity"] = f.get("severity") if f.get("severity") in ("blocker", "major", "minor", "info") else "major"
+        f.setdefault("title", "")
+        f.setdefault("claim", "")
         if f["status"] == "rejected":
-            f["rejection_reason"] = "no cited evidence could be verified: " + "; ".join(e["note"] for e in f["evidence"]) if f["evidence"] else "no evidence cited"
+            f["rejection_reason"] = (("no cited evidence about the change could be verified: " + "; ".join(e["note"] for e in f["evidence"]))
+                                     if f["evidence"] else "no evidence cited")
+    for r in out.get("refutations", []):  # a later pass saying an earlier finding is not a defect (see decide.carry_forward)
+        r["evidence"] = [v.item(e) for e in r.get("evidence", [])]
+        r["verified_count"] = sum(e["verified"] for e in r["evidence"])
     return out

@@ -1,0 +1,22 @@
+# PLACEHOLDER derived from upstream issue #2017, for upstream PR #2022 (a merged, human-written upstream change used as a
+# low-risk control: does the pipeline clear what it should?). Not a Tieto requirement set.
+change: "up-2022"
+branch: upstream PR #2022 (merge e88df8a7; base = merge^1 f5e104ee, head = merge^2 5f4b762a)
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2017
+pull_request: https://github.com/MessagePack-CSharp/MessagePack-CSharp/pull/2022
+official: false
+requirements:
+  - id: REQ-up-2022-F1
+    type: functional
+    text: "The analyzer must not report MsgPack013 (formatter has no accessible instance for the source generated resolver) for an abstract class that implements IMessagePackFormatter<T>."
+  - id: REQ-up-2022-F2
+    type: functional
+    text: "Abstract implementations of IMessagePackFormatter<T> must not be counted as formatters, so they cannot cause MsgPack009 (more than one formatter for the same type)."
+  - id: REQ-up-2022-N1
+    type: non-functional
+    checks: [tests.fail_without_fix]
+    text: "The fix is covered by automated tests that fail without it."
+  - id: REQ-up-2022-N2
+    type: non-functional
+    checks: [tests.full_suite]
+    text: "Non-abstract formatters are still discovered and diagnosed as before (no regressions in the existing test suite)."

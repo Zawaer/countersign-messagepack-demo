@@ -33,9 +33,8 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
     reqs = ws.requirements(change)
     m = mandate_mod.load(ws)
     msig = mandate_mod.signature_status(ws, m)
-    state = trust.derive(m, ledger.read(ws) if use_trust else [])
 
-    v = verify.Verifier(ws.repo, facts, reqs, m["decision"]["code_line_tolerance"])
+    v = verify.Verifier(ws.repo, facts, reqs, m["decision"]["code_line_tolerance"], m["decision"].get("base_context_files", []))
     # Who may read this change (reviewer registry + confidentiality). Reviews by anyone else are not used.
     panel = m.panel([a["name"] for a in decide_mod.touched_areas(facts, m)])
     all_reviews = ws.reviews(change)
@@ -44,14 +43,19 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
                                           "not a participating reviewer in the mandate's registry")}
                for n in all_reviews if n not in raw_reviews]
     reviews = {name: verify.verify_review(r, v) for name, r in raw_reviews.items()}
+    # Earlier passes (<reviewer>.v1.json): their open blocker/major findings carry forward (decide.carry_forward).
+    earlier = {n: [(pn, verify.verify_review(r, v)) for pn, r in ps] for n, ps in ws.earlier_reviews(change).items() if n in reviews}
+    # Trust state, with the release gate applied to the reviewer versions that actually reviewed this change.
+    versions = {n: {"model": r.get("model"), "prompt_version": r.get("prompt_version")} for n, r in raw_reviews.items()}
+    state = trust.derive(m, ledger.read(ws) if use_trust else [], versions)
     adj_path = ws.adjudication_path(change)
     adj = read_json(adj_path) if adj_path else None
     if adj and adj.get("reviewer") != panel["adjudicator"]:
         ignored.append({"name": adj_path.name, "reason": f"{adj.get('reviewer')} is not the adjudicator allowed for this change"})
         adj = None
-    d = decide_mod.decide(facts, reviews, reqs, m, msig, trust.caps(state), panel, deepcopy(adj))
+    d = decide_mod.decide(facts, reviews, reqs, m, msig, trust.caps(state), panel, deepcopy(adj), deepcopy(earlier))
     # What the AI would recommend under the mandate's own caps. During probation this is what spot-checks grade.
-    ai_alone = decide_mod.decide(facts, reviews, reqs, m, msig, {}, panel, deepcopy(adj))["tier"]
+    ai_alone = decide_mod.decide(facts, reviews, reqs, m, msig, {}, panel, deepcopy(adj), deepcopy(earlier))["tier"]
 
     req_file = ws.root / reqs["_path"] if not Path(reqs["_path"]).is_absolute() else Path(reqs["_path"])
     inputs = {"facts": _file_ref(facts_path, ws.root), "requirements": _file_ref(req_file, ws.root),
@@ -84,8 +88,14 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
     rejected = [f for f in d["findings"] if f["status"] == "rejected"]
     residual = [f"{c['id']} not proven: " + _codes(c) for c in d["clauses"] if c["status"] == "refused"]
     residual += [f"{c['id']} held before this change (met, but not achieved by it)" for c in d["clauses"] if c["status"] == "held_before"]
-    residual += [f"Reviewer refusal ({r['reviewer']}): {r['topic']}" for r in d["reviewer_refusals"]]
-    residual += [f"Open {f['severity']} finding {f['reviewer']}:{f['id']}: {f['title']}" for f in verified if f["severity"] in ("blocker", "major")]
+    if d.get("reviewers_untrusted"):
+        residual.insert(0, "Reviewers saw planted instructions (R-INJECT); their verdicts don't count: " + "; ".join(d["reviewers_untrusted"]["lines"]))
+    residual += [f"Reviewer refusal ({r['reviewer']}): {r['topic']}" + ("" if r.get("routes") == "ask" else " (out of scope: notify)")
+                 for r in d["reviewer_refusals"]]
+    residual += [f"Open {f['severity']} finding {f['reviewer']}:{f['id']}: {f['title']}"
+                 + (f" (carried forward from {f['carried_forward']['from']})" if f.get("carried_forward") else "")
+                 + (f" ({f['repro']['label']})" if f.get("repro") else "")
+                 for f in verified if f["severity"] in ("blocker", "major")]
     residual += [f"Unsupported {f['severity']} claim {f['reviewer']}:{f['id']} was rejected for lack of evidence, not disproven: {f['title']}"
                  for f in rejected if f["severity"] in ("blocker", "major")]
     residual += [f"{x['id']} not run ({x['reason']})" for x in not_checked if x["source"] != "mandate known gap"]
@@ -131,6 +141,10 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
         "residual_risk": residual,
         "risk": d["risk"],
         "rules_fired": d["rules_fired"],
+        "reviewers_untrusted": d.get("reviewers_untrusted"),
+        "carried_forward": d.get("carried_forward", []),
+        "refuted_findings": d.get("refuted", []),
+        "reproduced": d.get("reproduced", {}),
         "signoff": {
             "required": tier in HUMAN_TIERS,
             "owner": d["owner"],
@@ -149,7 +163,78 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
     p["trust"] = trust_rows
     p["panel"] = _panel(p, d, reviews)
     p["evidence_index"] = idx
+    p["supply_chain"] = _supply_chain(facts, d)
     return p
+
+
+# --- supply chain (from the build) --------------------------------------------------------
+
+SUPPLY_RULES = {"deps_unallowed", "deps_new_vulnerability", "egress_violation"}
+
+
+def _vuln(v: dict) -> dict:
+    adv = str(v.get("advisory") or "")
+    return {"package": v.get("package"), "version": v.get("version"), "severity": v.get("severity"),
+            "advisory": adv, "id": adv.rstrip("/").rsplit("/", 1)[-1], "projects": v.get("projects", [])}
+
+
+def _supply_chain(facts: dict, d: dict) -> dict:
+    """What the build of this change touched, from deps.delta, build.egress and CRACI's own records (craci.*).
+    One line for the card; the rest is shown folded. Everything is copied from facts.json, so it is deterministic."""
+    deps, egress, net, csbom = (decide_mod.check(facts, x) for x in ("deps.delta", "build.egress", "craci.network", "craci.sbom"))
+    rules = [{"id": r["id"], "tier": r["tier"], "evidence": r["evidence"]} for r in d["rules_fired"] if r["when"] in SUPPLY_RULES]
+    out: dict = {"recorded": bool(deps or egress or net), "rules": rules}
+    line = []
+    if deps:
+        pk = ([{"change": "added", "package": x["package"], "base": None, "head": x.get("version"), "direct": bool(x.get("direct")),
+                "via": (x.get("via") or [None])[0]} for x in deps.get("packages_added") or []]
+              + [{"change": "version", "package": x["package"], "base": ", ".join(x.get("from") or []), "head": x.get("to"),
+                  "direct": bool(x.get("direct")), "via": (x.get("via") or [None])[0]} for x in deps.get("versions_changed") or []])
+        new_v = [_vuln(v) for v in deps.get("vulnerabilities_new") or []]
+        old_v = [_vuln(v) for v in deps.get("vulnerabilities_also_on_base") or []]
+        counts = deps.get("counts") or {}
+        out["deps"] = {"status": deps["status"], "summary": deps.get("summary"), "fail_reasons": deps.get("fail_reasons", []),
+                       "packages": pk, "packages_removed": deps.get("packages_removed", []),
+                       "projects_added": deps.get("projects_added", []), "project_references_added": deps.get("project_references_added", []),
+                       "direct_references_added": deps.get("direct_references_added", []),
+                       "build_inputs_changed": deps.get("build_inputs_changed") or {},
+                       "vulnerabilities_new": new_v, "vulnerabilities_also_on_base": old_v,
+                       "counts": counts, "sbom": deps.get("sbom")}
+        bits = [f"{len(pk)} package(s) added or moved" if pk else "no package added or moved"]
+        if deps.get("projects_added"):
+            bits.append(_plural(len(deps["projects_added"]), "new project"))
+        if deps.get("build_inputs_changed"):
+            bits.append("build inputs changed: " + ", ".join(deps["build_inputs_changed"]))
+        bits.append(f"{len(new_v)} new advisor{'y' if len(new_v) == 1 else 'ies'}" + (f" ({len(old_v)} already on base)" if old_v else ""))
+        line.append(f"deps.delta {deps['status']}: " + ", ".join(bits))
+    else:
+        line.append("deps.delta not run")
+    if egress:
+        pol = egress.get("policy") or {}
+        prov = egress.get("provenance") or {}
+        out["egress"] = {"status": egress["status"], "summary": egress.get("summary"), "reason": egress.get("reason"),
+                         "policy": {k: pol.get(k) for k in ("default", "presets", "tls_server_name_patterns", "ports")},
+                         "policy_sha256": egress.get("policy_sha256"), "run": prov.get("run"),
+                         "craci_job_ca_sha256": (prov.get("craci_job_ca") or {}).get("sha256"),
+                         "blocked_hosts": egress.get("blocked_hosts", []),
+                         "feeds_outside_policy": egress.get("nuget_feeds_outside_policy") or {}}
+        line.append(f"build.egress {egress['status']}" + (f" (blocked: {', '.join(egress.get('blocked_hosts') or [])})" if egress.get("blocked_hosts") else ""))
+    else:
+        out["egress"] = None
+        line.append("build egress not recorded (local run, not on CRACI)")
+    if net:
+        out["craci_network"] = {"status": net["status"], "summary": net.get("summary"), "reason": net.get("reason"),
+                                "proxy_violations": net.get("proxy_violations", []),
+                                "hosts": [{k: h.get(k) for k in ("host", "connections", "bytes_received", "denied")} for h in net.get("hosts", [])]}
+        if net["status"] != "skipped":
+            line.append(f"CRACI trace {net['status']}" + (f" ({_plural(len(net.get('proxy_violations') or []), 'proxy violation')})" if net.get("proxy_violations") else ""))
+    else:
+        out["craci_network"] = None
+    out["craci_sbom"] = {"status": csbom["status"], "summary": csbom.get("summary")} if csbom else None
+    worst = [c["status"] for c in (deps, egress, net) if c]
+    out["status"] = "fail" if "fail" in worst else "pass" if "pass" in worst else "not run"
+    out["line"] = "; ".join(line)
+    return out
 
 
 def _codes(c: dict) -> str:
@@ -241,7 +326,7 @@ class _Git:
     def lines(self, rev_name: str, path: str) -> tuple[str, list[str] | None]:
         rev = self.facts.get(rev_name, rev_name) if rev_name in ("head", "base") else rev_name
         if (rev, path) not in self.cache:
-            r = subprocess.run(["git", "-C", self.repo, "show", f"{rev}:{path}"], capture_output=True)
+            r = subprocess.run(["git", "-C", self.repo, "show", "--end-of-options", f"{rev}:{path}"], capture_output=True)
             lines = r.stdout.decode("utf-8", "replace").splitlines() if r.returncode == 0 else None
             mut = self.facts.get("mutation") or {}
             if lines and rev_name == "head" and mut.get("file") == path and mut.get("line") and mut.get("before") is not None:
@@ -253,7 +338,11 @@ class _Git:
 
 
 def _excerpt(git: _Git, e: dict, tolerance: int) -> dict | None:
-    rev, lines = git.lines(e.get("rev", "head"), str(e.get("file", "")))
+    path = str(e.get("file", ""))
+    # model output (R7): only head/base, only relative paths, the same limits as verify.Verifier.code
+    if e.get("rev", "head") not in ("head", "base") or not path or path.startswith(("-", "/")) or ".." in path.split("/"):
+        return None
+    rev, lines = git.lines(e.get("rev", "head"), path)
     if not lines:
         return None
     try:

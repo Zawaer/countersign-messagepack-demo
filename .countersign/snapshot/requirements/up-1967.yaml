@@ -1,0 +1,14 @@
+# PLACEHOLDER derived from upstream PR #1967 (no linked issue; PR body: "fix anchor ref name to `#aot`"), a merged,
+# docs-only upstream change used as a low-risk control. Not a Tieto requirement set.
+change: "up-1967"
+branch: upstream PR #1967 (merge 1d24c54a; base = merge^1 b9b65ddf, head = merge^2 8683d1cd)
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/pull/1967
+pull_request: https://github.com/MessagePack-CSharp/MessagePack-CSharp/pull/1967
+official: false
+requirements:
+  - id: REQ-up-1967-F1
+    type: docs
+    text: "The README table-of-contents entry \"AOT Code Generation (support for Unity/Xamarin)\" must link to an anchor that exists in README.md (the AOT Code Generation section)."
+  - id: REQ-up-1967-N1
+    type: docs
+    text: "Only documentation changes; no other README content is altered."
