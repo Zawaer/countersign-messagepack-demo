@@ -7,9 +7,13 @@ Every number carries `simulated: true|false`:
 
 from __future__ import annotations
 
-from . import ledger, pack as pack_mod
-from .common import HUMAN_TIERS, Workspace, base_change, is_mutant, read_json, write_json
-from .mandate import load
+from copy import deepcopy
+
+from . import decide as decide_mod, ledger, pack as pack_mod
+from .common import HUMAN_TIERS, TIERS, Workspace, base_change, is_mutant, read_json, write_json
+from .mandate import load, signature_status
+
+INHERITED = ("tests.fail_without_fix", "tests.execution_fail_without_fix", "public_api", "analyzers")  # properties of the tests and the diff, not of the one-line edit
 
 GENERIC_RULES = {"mandated-check-missing", "mandate-not-signed"}
 GENERIC_CODES = {"check_not_run", "missing_review"}
@@ -44,6 +48,85 @@ def _signals(p: dict) -> set[str]:
 def _caught_by(mutant: dict, original: dict | None) -> list[str]:
     """Signals the mutant raised that its unmutated original did not: those are attributable to the seeded defect."""
     return sorted(_signals(mutant) - (_signals(original) if original else set()))
+
+
+def deterministic_route(ws: Workspace, change: str, m=None) -> dict:
+    """Tier from facts alone (no reviews, no clauses, mandate caps). For a mutant, the checks a one-line source edit
+    cannot change (fail-without-fix, public API, analyzers) are inherited from the unmutated original, so the
+    original and the mutant are routed on equal terms; the original is routed the same way for comparison."""
+    m = m or load(ws)
+    facts = deepcopy(read_json(ws.facts_path(change)))
+    if is_mutant(change) and ws.facts_path(base_change(change)).exists():
+        orig = read_json(ws.facts_path(base_change(change)))
+        have = {c["id"] for c in facts.get("checks", [])}
+        facts["checks"] = facts.get("checks", []) + [{**c, "inherited_from": base_change(change)} for c in orig.get("checks", [])
+                                                      if c["id"] in INHERITED and c["id"] not in have]
+    d = decide_mod.decide(facts, {}, {"requirements": []}, m, signature_status(ws, m), {})
+    rules = {r["id"] for r in d["rules_fired"]}
+    return {"tier": d["tier"], "score": d["risk"]["score"], "rules": sorted(rules),
+            "why": [f"{w['source']}: {w['id']}" for w in d["decisive"]],
+            "failed_checks": [c["id"] for c in facts.get("checks", []) if c["status"] == "fail" and c["id"] != "public_api" and "inherited_from" not in c]}
+
+
+def mutant_table(ws: Workspace) -> list[dict]:
+    """Every seeded defect: what the deterministic checks caught, and where it would be routed before any AI review.
+    Hook for reviews: once reviews/<mutant>/<reviewer>.json exist (e.g. the Nemotron CI reviewer), `replay` also
+    builds the full pack for that mutant and reports catch_rate / catch_rate_attributable with the reviewers included."""
+    m = load(ws)
+    catalogue = {}
+    cat_path = ws.root / "measurement" / "mutants" / "mutants.json"
+    if cat_path.exists():
+        catalogue = {x["id"]: x for x in read_json(cat_path)["mutants"]}
+    rows, originals = [], {}
+    for change in [c for c in ws.changes() if is_mutant(c)]:
+        f = read_json(ws.facts_path(change))
+        of = base_change(change)
+        if of not in originals and ws.facts_path(of).exists():
+            originals[of] = deterministic_route(ws, of, m)
+        r = deterministic_route(ws, change, m)
+        o = originals.get(of)
+        new_signals = sorted(set(r["rules"]) - set(o["rules"] if o else []))
+        if o and TIERS.index(r["tier"]) > TIERS.index(o["tier"]) and not new_signals:
+            new_signals = [f"risk {o['score']} -> {r['score']} (failed: {', '.join(r['failed_checks'])})"]
+        rows.append({"change": change, "of": of, "kind": f["mutation"].get("kind") or catalogue.get(change, {}).get("kind"),
+                     "description": f["mutation"].get("description"),
+                     "caught_by_checks": bool(r["failed_checks"]), "failed_checks": r["failed_checks"],
+                     "tier": r["tier"], "original_tier": o["tier"] if o else None, "routed_to_human": r["tier"] in HUMAN_TIERS,
+                     "attributable": new_signals, "reviews": sorted(ws.reviews(change)) or "pending",
+                     "simulated": bool(f.get("simulated"))})
+    return rows
+
+
+def reviewer_cross_check(packs: dict) -> dict:
+    """Per reviewer: blocker/major findings it raised that verified, how many another reviewer also raised (same anchor),
+    and how many verified blocker/major findings of OTHER reviewers it did not raise (its misses, as far as the panel knows)."""
+    out: dict[str, dict] = {}
+    for p in packs.values():
+        fs = [f for f in p.get("findings", []) if f.get("severity") in ("blocker", "major")]
+        names = {r["reviewer"] for r in p["checked_by"]["reviewers"]}
+        for n in names:
+            s = out.setdefault(n, {"major_raised_verified": 0, "confirmed_by_another": 0, "missed_others_verified_major": 0})
+            mine = [f for f in fs if f["reviewer"] == n and f["status"] == "verified"]
+            others = [f for f in fs if f["reviewer"] != n and f["status"] == "verified"]
+            s["major_raised_verified"] += len(mine)
+            s["confirmed_by_another"] += sum(any(decide_mod._anchors(f) & decide_mod._anchors(g) for g in others) for f in mine)
+            s["missed_others_verified_major"] += sum(not any(decide_mod._anchors(f) & decide_mod._anchors(g) for g in mine) for f in others)
+    return out
+
+
+def _tokens_per_change(ws: Workspace) -> dict:
+    """Model tokens per change from measurement/costs.yaml (a run covering several changes is split evenly)."""
+    import yaml
+    p = ws.measurement_dir / "costs.yaml"
+    if not p.exists():
+        return {}
+    out: dict[str, int] = {}
+    for r in (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("runs", []):
+        changes = r.get("changes") or ([r["change"]] if r.get("change") else [])
+        tok = r.get("tokens_total") or ((r.get("tokens_in") or 0) + (r.get("tokens_out") or 0))
+        for c in changes:
+            out[c] = out.get(c, 0) + round(tok / len(changes))
+    return out
 
 
 def replay(ws: Workspace) -> dict:
@@ -124,7 +207,29 @@ def replay(ws: Workspace) -> dict:
         "spotcheck_agreement": metric(round(sum(e["payload"]["result"] == "agree" for e in spots) / len(spots), 2) if spots else None,
                                       any(e["payload"].get("simulated") for e in spots), "agreeing spot-checks / all spot-checks in the ledger"),
     }
-    return {"inputs": str(ws.inputs), "changes": rows, "skipped": skipped, "metrics": metrics}
+    mt = mutant_table(ws)
+    metrics["seeded_defects_total"] = metric(len(mt), any(r["simulated"] for r in mt), "every evidence/<change>-mutK, with or without reviews")
+    metrics["seeded_routed_to_human_before_review"] = metric(
+        {"routed": sum(r["routed_to_human"] for r in mt), "attributable": sum(bool(r["attributable"]) for r in mt), "of": len(mt)},
+        any(r["simulated"] for r in mt),
+        "facts only (no reviews): mutants at ask/block; attributable = a hard rule fired, or the tier rose, versus the unmutated original routed the same way")
+    metrics["reviewer_cross_check"] = metric(reviewer_cross_check(packs), any_sim(rows),
+                                             "blocker/major findings: raised and verified, confirmed by another reviewer (shared anchor), "
+                                             "and other reviewers' verified ones this reviewer did not raise")
+    metrics["time_per_change"] = metric({r["change"]: {"full_read_min": r["full_read_min"], "with_pack_min": r["guided_min"],
+                                                       "saved_min": round(r["full_read_min"] - r["guided_min"], 1)} for r in real}, True,
+                                        "reading model; negative = the pack costs more than reading the diff (small changes)")
+    metrics["model_tokens_per_change"] = metric(_tokens_per_change(ws), False, "measurement/costs.yaml; estimates where the row says so")
+    out = {"inputs": str(ws.inputs), "changes": rows, "skipped": skipped, "mutants": mt, "metrics": metrics}
+    hist = ws.root / "measurement" / "history" / "results.json"
+    if hist.exists():
+        h = read_json(hist)
+        out["history"] = {"simulated": False, "source": "measurement/history/results.json", **{k: {kk: vv for kk, vv in v.items() if kk != "escapes_cleared"}
+                          | {"escapes_cleared": [x["pr"] for x in v["escapes_cleared"]]} for k, v in h["modes"].items()}}
+    sim = ws.root / "measurement" / "simulation" / "results.json"
+    if sim.exists():
+        out["simulation"] = {"simulated": True, "source": "measurement/simulation/results.json", "summary": read_json(sim)["summary"]}
+    return out
 
 
 def write(ws: Workspace, result: dict) -> None:
@@ -143,9 +248,18 @@ def to_markdown(r: dict) -> str:
                    f"{c['full_read_min']} | {c['guided_min']} | {c['simulated']} |")
     if r.get("skipped"):
         out += ["", *(f"- Not replayed: {s['change']}: {s['reason']}" for s in r["skipped"])]
+    if r.get("mutants"):
+        out += ["", "## Seeded defects (facts only; AI reviews pending)", "",
+                "| Mutant | Kind | Caught by checks | Failed checks | Tier (no reviews) | Original's tier | Attributable signal (vs original) | Reviews |",
+                "|---|---|---|---|---|---|---|---|"]
+        out += [f"| {x['change']} | {x['kind']} | {'yes' if x['caught_by_checks'] else '**no**'} | {', '.join(x['failed_checks']) or '-'} | {x['tier']} | "
+                f"{x['original_tier']} | {', '.join(x['attributable']) or '-'} | {x['reviews'] if isinstance(x['reviews'], str) else ', '.join(x['reviews'])} |"
+                for x in r["mutants"]]
     out += ["", "| Metric | Value | Simulated | How |", "|---|---|---|---|"]
     for k, m in r["metrics"].items():
         v = m["value"]
+        if k in ("caught_by_checks_alone",):
+            v = f"{v['caught']} of {v['of']}"
         if k == "findings_per_reviewer":
             v = "; ".join(f"{n}: {s['verified']} verified, {s['rejected']} rejected, {s['refusals']} refusals" for n, s in v.items())
         out.append(f"| {k} | {v} | {m['simulated']} | {m['how']} |")

@@ -124,7 +124,8 @@ def status_for(p: dict, stale: list[str], signoff: dict | None, ledger_problems:
         return "success", f"AI-cleared: {p['tier']} under mandate v{p['mandate']['version']}"
     if p["tier"] == "ask":
         return "pending", f"ask: awaiting countersignature by {owner}"
-    return "failure", f"block: {p['why'][0]['id']} (owner {owner} may only reject or request changes)"
+    w = p["why"][0]
+    return "failure", f"block ({w['id']}): {w['why']}"
 
 
 # --- GitHub API ----------------------------------------------------------------------------------------------
@@ -368,7 +369,7 @@ def cmd_command(a) -> int:
                     reply = "Not recorded: the ledger would not verify with this entry: " + "; ".join(after)
                 else:
                     try:
-                        _commit_ledger(a.ledger_dir, ws, cfg, entry, pr["number"])
+                        _commit_ledger(a.ledger_dir, a.repo_dir, ws, cfg, entry, pr["number"])
                     except subprocess.CalledProcessError as e:
                         reply = f"Not recorded: pushing the ledger failed ({e.stderr.strip()[:200] if e.stderr else e}). Sign again."
                     else:
@@ -382,13 +383,17 @@ def cmd_command(a) -> int:
     return 0
 
 
-def _commit_ledger(ledger_dir: str, ws: Workspace, cfg: dict, entry: dict, number: int) -> None:
+def _commit_ledger(ledger_dir: str, repo_dir: str, ws: Workspace, cfg: dict, entry: dict, number: int) -> None:
+    """Commit in the ledger worktree, push from the main checkout (which holds the CI credentials; worktrees share
+    its objects). The push is a fast-forward or nothing: the ledger branch refuses force pushes."""
     shutil.copyfile(ws.ledger_path, Path(ledger_dir, "ledger.jsonl"))
     run = lambda *x: subprocess.run(["git", "-C", ledger_dir, *x], check=True, capture_output=True, text=True)  # noqa: E731
     run("add", "ledger.jsonl")
     run("-c", "user.name=countersign[bot]", "-c", "user.email=countersign@users.noreply.github.com", "commit", "-q", "-m",
         f"ledger #{entry['seq']}: {entry['payload']['decision']} on change {entry['payload']['change']} by {entry['signer']} (PR #{number})")
-    run("push", "-q", "origin", f"HEAD:{cfg['ledger_branch']}")
+    sha = run("rev-parse", "HEAD").stdout.strip()
+    subprocess.run(["git", "-C", repo_dir, "push", "-q", "origin", f"{sha}:refs/heads/{cfg['ledger_branch']}"],
+                   check=True, capture_output=True, text=True)
 
 
 def make_entry(ws: Workspace, p: dict, signer: str, decision: str, note: str, key_b64: str, extra: dict | None = None) -> dict:
