@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
+index 470c93fc..d03931b9 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
+@@ -1160,7 +1160,7 @@ public class TypeCollector
+                         {
+                             DeclaringType = GetDeclaringTypeIfColliding(item),
+                         };
+-                        if (!intMembers.ContainsKey(member.IntKey))
++                        if (!(!intMembers.ContainsKey(member.IntKey)))
+                         {
+                             intMembers.Add(member.IntKey, (member, item.Type));
+                         }

@@ -229,8 +229,12 @@ def render(p: dict, pack_sha: str, live: dict, stale: list[str], signoff: dict |
                   f"{owner} signs with their own key on their own machine (CI never holds it), from a clone of this repo:", "",
                   "```bash",
                   f"PYTHONPATH=.countersign/snapshot python3 -m countersign.github sign-pr {number} --gh-repo {gh_repo} \\",
-                  f"  --as {owner} --decision <{allowed}> --note \"...\" --key <path to your {owner.lower()}.key> --post",
+                  f"  --as {owner} --decision <{allowed}> --note \"...\" --key <path to your {owner.lower()}.key> --post"
+                  + "".join(f" \\\n  {r['flag']}" for r in p["signoff"].get("findings", [])),
                   "```", "",
+                  *(["Each `--finding` flag records your verdict on one verified finding: `accepted` (real), `rejected` "
+                     "(a false positive) or `unsure`, optionally `:reason`; a finding without a flag is recorded as `unrated`.", ""]
+                    if p["signoff"].get("findings") else []),
                   f"That shows the sign-off card, signs a ledger entry over this pack's hash and posts it here as "
                   f"`/countersign <decision> <note>`. CI verifies the signature against `keys/{owner.lower()}.pub` and that "
                   f"the commenter is @{login or '?'}, appends it to the `{cfg['ledger_branch']}` branch and sets "
@@ -321,6 +325,15 @@ def verify_signed_entry(entry: dict, ws: Workspace, p: dict, pack_sha: str, deci
             errs.append(f"payload.{k} is {pl.get(k)!r}, expected {v!r}")
     if decision not in p["signoff"]["allowed_decisions"]:
         errs.append(f"decision {decision} not allowed for tier {p['tier']} ({p['signoff']['allowed_decisions']})")
+    if "findings" in pl:  # entries signed before per-finding verdicts have none
+        fs = pl["findings"] if isinstance(pl["findings"], list) else []
+        refs = [x.get("ref") for x in fs if isinstance(x, dict)]
+        want_refs = [f"{f['reviewer']}:{f['id']}" for f in p["findings"]]
+        if not isinstance(pl["findings"], list) or len(refs) != len(fs) or refs != want_refs:
+            errs.append(f"payload.findings names {refs}, expected the pack's verified findings {want_refs}")
+        bad = [x.get("ref") for x in fs if isinstance(x, dict) and x.get("verdict") not in (*pack_mod.FINDING_VERDICTS, "unrated")]
+        if bad:
+            errs.append(f"payload.findings has an unknown verdict on {bad}")
     if ledger.entry_hash(entry) != entry.get("hash"):
         errs.append("hash does not match the entry's content")
     ok, why = keys.verify(ws, p["owner"], str(entry.get("hash")).encode(), entry.get("sig", ""))
@@ -406,7 +419,8 @@ def _commit_ledger(ledger_dir: str, repo_dir: str, ws: Workspace, cfg: dict, ent
                    check=True, capture_output=True, text=True)
 
 
-def make_entry(ws: Workspace, p: dict, signer: str, decision: str, note: str, key_b64: str, extra: dict | None = None) -> dict:
+def make_entry(ws: Workspace, p: dict, signer: str, decision: str, note: str, key_b64: str, extra: dict | None = None,
+               findings: list[dict] | None = None) -> dict:
     """The same signoff entry `countersign sign` writes, chained onto the ledger in `ws`, signed with the given key."""
     entries = ledger.read(ws)
     entry = {"seq": len(entries) + 1, "ts": now_iso(), "type": "signoff", "signer": signer,
@@ -414,7 +428,9 @@ def make_entry(ws: Workspace, p: dict, signer: str, decision: str, note: str, ke
              "payload": {"change": p["change"], "pack_path": f"packs/{p['change']}/pack.json", "pack_sha256": sha256_hex(canonical(p)),
                          "decision": decision, "note": note, "tier": p["tier"], "ai_cleared": p["tier"] not in HUMAN_TIERS,
                          "areas": [x["name"] for x in p["areas"]], "mandate_sha256": p["mandate"]["sha256"],
-                         "statement": p["signoff"]["statement"], **(extra or {})}}
+                         "statement": p["signoff"]["statement"],
+                         "findings": findings if findings is not None else pack_mod.rate_findings(p, []),
+                         "simulated": bool(p.get("simulated")), **(extra or {})}}
     entry["hash"] = ledger.entry_hash(entry)
     key = Ed25519PrivateKey.from_private_bytes(base64.b64decode(key_b64))
     entry["sig"] = base64.b64encode(key.sign(entry["hash"].encode())).decode()
@@ -448,9 +464,10 @@ def cmd_sign_pr(a) -> int:
     a.note = a.note.strip()
     if "\n" in a.note:
         raise SystemExit("keep the note on one line")
+    rated = pack_mod.rate_findings(p, a.finding)
     pack_sha = sha256_hex(canonical(p))
     binding = pr_binding(a.gh_repo, a.pr, pr["head_sha"])
-    entry = make_entry(ws, p, a.signer, a.decision, a.note, Path(a.key).expanduser().read_text(), binding)
+    entry = make_entry(ws, p, a.signer, a.decision, a.note, Path(a.key).expanduser().read_text(), binding, rated)
     errs = verify_signed_entry(entry, ws, p, pack_sha, a.decision, a.note, binding)
     if errs:
         raise SystemExit("the signed entry would be refused:\n  " + "\n  ".join(errs))
@@ -487,6 +504,8 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--as", dest="signer", required=True)
     sp.add_argument("--decision", choices=["accept", "reject", "request-changes"], required=True)
     sp.add_argument("--note", default="")
+    sp.add_argument("--finding", action="append", metavar="REVIEWER:ID=VERDICT[:REASON]",
+                    help="your verdict on one verified finding (repeatable): accepted, rejected or unsure; the rest are recorded as unrated")
     sp.add_argument("--key", required=True, help="your Ed25519 private key (raw, base64), e.g. from `countersign keygen`")
     sp.add_argument("--post", action="store_true", help="post the comment with gh (otherwise print it)")
     return ap

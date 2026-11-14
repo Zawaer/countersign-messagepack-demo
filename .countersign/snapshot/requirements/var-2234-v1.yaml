@@ -1,0 +1,31 @@
+# REUSED from requirements/2234.yaml (same clauses, same ids, unchanged text) for another fix of the same upstream issue
+# #2234, so every fix of it is judged against the same clauses (docs/MEASUREMENT.md, "Same issue, several fixes").
+# Still a placeholder derived from the issue, not a Tieto set.
+change: "var-2234-v1"
+branch: cs-var/2234-v1
+reused_from: requirements/2234.yaml
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2234
+official: false
+requirements:
+  - id: REQ-2234-F1
+    type: functional
+    # tests: the tests that exercise this clause; held_before is judged on their fail-without-fix outcomes.
+    # The four *WithoutAnalyzerFailure tests belong to N1 (no crash): without the fix they still report the
+    # contract diagnostic (MsgPack005) and fail only on the extra AD0001 analyzer crash (evidence/2234/facts.json).
+    tests:
+      - SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported
+      - SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported
+      - SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported
+    text: "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types, as it did in version 3.1.0."
+  - id: REQ-2234-F2
+    type: functional
+    tests: [SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed]
+    text: "Diagnostics that only apply when a formatter is generated (partial-class requirement, AOT-only checks) must not be reported for types with SuppressSourceGeneration = true."
+  - id: REQ-2234-N1
+    type: non-functional
+    checks: [tests.full_suite]
+    text: "The analyzer and generator must not crash on invalid contracts (e.g. duplicate keys) in such types."
+  - id: REQ-2234-N2
+    type: non-functional
+    checks: [tests.fail_without_fix]
+    text: "The fix is covered by automated tests that fail without it; no regressions in the existing test suite."

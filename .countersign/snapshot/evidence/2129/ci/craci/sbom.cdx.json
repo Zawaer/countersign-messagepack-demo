@@ -1,0 +1,52 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.7",
+ "serialNumber": "urn:uuid:4f7daf18-2594-45f1-ae1b-b0e1fe7b6ebc",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-11-14T09:33:37.328508276Z",
+  "component": {
+   "type": "application",
+   "name": "facts (stage 1 deterministic checks for one change, .NET 8 + 9)",
+   "bom-ref": "craci:github:Zawaer/countersign/43580812697/132404967646"
+  },
+  "properties": [
+   {
+    "name": "craci:job:branch",
+    "value": "main"
+   },
+   {
+    "name": "craci:job:commit",
+    "value": "f2219f929d506fcf736f0c20d2c4afb3ae8e3fea"
+   },
+   {
+    "name": "craci:job:job_id",
+    "value": "132404967646"
+   },
+   {
+    "name": "craci:job:job_status",
+    "value": "SUCCESS"
+   },
+   {
+    "name": "craci:job:provider",
+    "value": "github"
+   },
+   {
+    "name": "craci:job:repository",
+    "value": "Zawaer/countersign"
+   },
+   {
+    "name": "craci:job:run_attempt",
+    "value": "1"
+   },
+   {
+    "name": "craci:job:run_id",
+    "value": "43580812697"
+   },
+   {
+    "name": "craci:job:workflow",
+    "value": "countersign"
+   }
+  ]
+ }
+}

@@ -1789,6 +1789,333 @@
         "head_serial": "urn:uuid:a224712a-8628-56be-af96-06839e19d64b"
       },
       "scope": "all 30 *.csproj in the tree (src, tests, sandbox, benchmark), restored as one throwaway solution; the graph is NuGet's restore output (obj/**/project.assets.json)"
+    },
+    {
+      "id": "build.egress",
+      "tool": "CRACI network policy (cracicorp/setup@v1) + job log scan",
+      "policy": {
+        "default": "deny",
+        "presets": [
+          "github"
+        ],
+        "tls_server_name_patterns": [
+          "github.com",
+          "codeload.github.com",
+          "objects.githubusercontent.com",
+          "api.nuget.org",
+          "*.nuget.org",
+          "pkgs.dev.azure.com",
+          "*.vsblob.vsassets.io",
+          "builds.dotnet.microsoft.com",
+          "dotnetcli.azureedge.net",
+          "dotnetcli.blob.core.windows.net",
+          "*.dot.net",
+          "dot.net",
+          "download.visualstudio.microsoft.com"
+        ],
+        "tcp_host_patterns": [],
+        "cidrs": [],
+        "ports": [
+          443
+        ]
+      },
+      "policy_text": "default: deny\npresets: [github]\nconnections:\n  - tls:\n      serverNamePatterns: [github.com, codeload.github.com, objects.githubusercontent.com,\n                           api.nuget.org, \"*.nuget.org\", pkgs.dev.azure.com, \"*.vsblob.vsassets.io\",\n                           builds.dotnet.microsoft.com, dotnetcli.azureedge.net, dotnetcli.blob.core.windows.net,\n                           \"*.dot.net\", dot.net, download.visualstudio.microsoft.com]\n      ports: [443]\n",
+      "policy_sha256": "31fafb855e985c38a31b18cfa9140b83a5b9caa5539eadbdf7344e88b20d2fa1",
+      "provenance": {
+        "workflow": ".github/workflows/countersign.yml",
+        "job": "facts",
+        "workflow_commit": "9e708dbb849708b99fe45c3269b04f422e907d93",
+        "run": "https://github.com/Zawaer/countersign/actions/runs/43559099382",
+        "run_attempt": "1",
+        "runner_name": "craci-3-b1adb8f0",
+        "craci_job_ca": {
+          "path": "/usr/local/share/ca-certificates/craci.crt",
+          "sha256": "07b9b35bb87e82bdf47448a83643cc4722b3c9effb60973ab22fd9fa2d86f797"
+        },
+        "craci_env": []
+      },
+      "logs_scanned": 13,
+      "blocked": [],
+      "blocked_hosts": [],
+      "nuget_feeds_on_head": {
+        "nuget.config:dotnet-tools": "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-tools/nuget/v3/index.json",
+        "nuget.config:nuget": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:nuget.org": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:repositoryPath": "./Packages"
+      },
+      "nuget_feeds_outside_policy": {},
+      "authoritative_record": "craci.network (CRACI network trace via the API; needs CRACI_API_TOKEN), or the job's View trace in the CRACI app",
+      "status": "pass",
+      "summary": "built on CRACI under a deny-by-default policy: only 13 TLS host patterns on ports 443 (github.com, codeload.github.com, objects.githubusercontent.com, api.nuget.org, *.nuget.org, pkgs.dev.azure.com, ...); presets ['github']; no blocked connection in 13 logs; every NuGet feed the head declares is inside the policy",
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43559099382"
+    },
+    {
+      "id": "craci.sbom",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580820406",
+        "job": "facts",
+        "job_id": "132404992169"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580820406",
+      "raw": "evidence/2297/ci/craci/sbom.cdx.json",
+      "spec_version": "1.7",
+      "serial": "urn:uuid:ff2fe022-56ab-421f-83d9-c264c938bdd8",
+      "components": 0,
+      "by_purl_type": {},
+      "completeness": null,
+      "nuget_seen_by_craci": 0,
+      "nuget_in_our_graph": 242,
+      "nuget_seen_by_craci_not_in_our_graph": [],
+      "other_components": [],
+      "status": "pass",
+      "summary": "CRACI's job SBOM: 0 components (none); 0 NuGet, all in our restore graph (242 NuGet packages). CRACI has no NuGet source type, so the facts job reaches NuGet through a TLS connection rule, which CRACI does not inspect for packages: the NuGet graph is recorded by deps.delta, CRACI records the connections (craci.network)"
+    },
+    {
+      "id": "craci.network",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580820406",
+        "job": "facts",
+        "job_id": "132404992169"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580820406",
+      "raw": "evidence/2297/ci/craci/network-trace.json.gz",
+      "schema_version": "1",
+      "job": {
+        "runId": "43580820406",
+        "jobId": "132404992169",
+        "runAttempt": 1,
+        "commitSha": "f2219f929d506fcf736f0c20d2c4afb3ae8e3fea",
+        "branch": "main",
+        "jobName": "facts (stage 1 deterministic checks for one change, .NET 8 + 9)",
+        "status": "SUCCESS"
+      },
+      "observations": 3530,
+      "dns_queries": 442,
+      "build_step_started": "2026-11-14T09:30:32",
+      "hosts": [
+        {
+          "host": "builds.dotnet.microsoft.com",
+          "connections": 17,
+          "bytes_sent": 13259,
+          "bytes_received": 468146875,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "api.nuget.org",
+          "connections": 65,
+          "bytes_sent": 252595,
+          "bytes_received": 271367288,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "github.com",
+          "connections": 2,
+          "bytes_sent": 7013,
+          "bytes_received": 19252062,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "codeload.github.com",
+          "connections": 3,
+          "bytes_sent": 4042,
+          "bytes_received": 4158726,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "pkgs.dev.azure.com",
+          "connections": 21,
+          "bytes_sent": 21282,
+          "bytes_received": 214748,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "ci.dot.net",
+          "connections": 8,
+          "bytes_sent": 10734,
+          "bytes_received": 43540,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "results-receiver.actions.githubusercontent.com",
+          "connections": 42,
+          "bytes_sent": 0,
+          "bytes_received": 10084,
+          "rules": [
+            "github-actions-cache-results-receiver.actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "launch.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 1616,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 49,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "broker.actions.githubusercontent.com",
+          "connections": 2,
+          "bytes_sent": 0,
+          "bytes_received": 4,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "productionresultssa17.blob.core.windows.net",
+          "connections": 17,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "recorded-http-api.github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run-actions-3-azure-eastus.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "token.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        }
+      ],
+      "proxy_violations": [],
+      "denied_certificate_status": [
+        {
+          "host": "ocsp.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 914,
+          "first_at": "2026-11-14T09:30:36.773283839Z",
+          "first_sequence": 297,
+          "example": "http://ocsp.digicert.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBTfIs%2BLjDtGwQ09XEB1Yeq%2BtX%2BBgQQU7NfjgtJxXWRM3y5nP%2Be6mK4cD08CEAc2N7ckVHzYR6z9KGYqXls%3D"
+        },
+        {
+          "host": "crl3.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 624,
+          "first_at": "2026-11-14T09:30:36.715801423Z",
+          "first_sequence": 284,
+          "example": "http://crl3.digicert.com/DigiCertTrustedG4RSA4096SHA256TimeStampingCA.crl"
+        },
+        {
+          "host": "crl4.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 290,
+          "first_at": "2026-11-14T09:30:36.843379038Z",
+          "first_sequence": 325,
+          "example": "http://crl4.digicert.com/DigiCertAssuredIDRootCA.crl"
+        },
+        {
+          "host": "s.symcb.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 269,
+          "first_at": "2026-11-14T09:30:36.782900883Z",
+          "first_sequence": 308,
+          "example": "http://s.symcb.com/universal-root.crl"
+        },
+        {
+          "host": "s.symcd.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 269,
+          "first_at": "2026-11-14T09:30:36.877641947Z",
+          "first_sequence": 331,
+          "example": "http://s.symcd.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQ%2FYHKj6JjF6UBieQioTYpFsuEriQQUtnf6aUhHn1MS1cLqBzJ2B9GXBxkCEHsFsdRJaFFE98mJ0pwZnRI%3D"
+        },
+        {
+          "host": "ts-crl.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 269,
+          "first_at": "2026-11-14T09:30:36.677189626Z",
+          "first_sequence": 275,
+          "example": "http://ts-crl.ws.symantec.com/sha256-tss-ca.crl"
+        },
+        {
+          "host": "ts-ocsp.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 269,
+          "first_at": "2026-11-14T09:30:36.932073985Z",
+          "first_sequence": 340,
+          "example": "http://ts-ocsp.ws.symantec.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQd11mpyHEqFCSocj4SCu93CBydHAQUr2PWyqNOhXLgp7xB8ymiOH%2BAdWICEHvU5a%2B6zAc%2FoQEjBCJBTRI%3D"
+        }
+      ],
+      "denied_during_toolchain_setup": [
+        {
+          "host": "aka.ms",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 3,
+          "first_at": "2026-11-14T09:30:07.523493665Z",
+          "first_sequence": 29,
+          "example": "https://aka.ms/dotnet/LTS/dotnet-runtime-linux-x64.tar.gz"
+        }
+      ],
+      "allowed_hosts_outside_declared_tls_patterns": [
+        "broker.actions.githubusercontent.com",
+        "launch.actions.githubusercontent.com",
+        "productionresultssa17.blob.core.windows.net",
+        "results-receiver.actions.githubusercontent.com",
+        "run-actions-3-azure-eastus.actions.githubusercontent.com",
+        "run.actions.githubusercontent.com",
+        "token.actions.githubusercontent.com"
+      ],
+      "status": "pass",
+      "summary": "181 connections to 13 hosts, 0 proxy violations: builds.dotnet.microsoft.com (468.1 MB), api.nuget.org (271.4 MB), github.com (19.3 MB), codeload.github.com (4.2 MB), pkgs.dev.azure.com (0.2 MB), ci.dot.net (44 kB); denied, not counted as the change's: 2904 certificate revocation lookups (CRL/OCSP over plain HTTP: crl3.digicert.com, crl4.digicert.com, ocsp.digicert.com, s.symcb.com, s.symcd.com, ts-crl.ws.symantec.com, ts-ocsp.ws.symantec.com), so package-signature revocation was not checked online; 3 request(s) during toolchain setup, before the change was built (aka.ms); 7 host(s) allowed by a preset or CRACI's own CI-service rule, not a listed TLS host (rules: github-actions-actions.githubusercontent.com, github-actions-cache-results-receiver.actions.githubusercontent.com, recorded-http-api.github.com)"
     }
   ],
   "not_run": [

@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
+index c4ebe3e1..116b8abb 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs
+@@ -1445,7 +1445,7 @@ public class TypeCollector
+     {
+         if (diagnostic.Location.IsInSource && this.compilation.ContainsSyntaxTree(diagnostic.Location.SourceTree))
+         {
+-            report(diagnostic);
++            { }
+         }
+     }
+ 

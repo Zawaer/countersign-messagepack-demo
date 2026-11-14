@@ -131,6 +131,53 @@ def parse_restore_errors(log: str, root: str | Path) -> dict:
     return out
 
 
+def merge_configurations(graphs: dict) -> dict:
+    """{configuration: graph} -> one graph, the union of all of them (red team S6: a PackageReference conditioned on
+    `'$(Configuration)' == 'Release'` is absent from a Debug restore, so the graph of one configuration is not the
+    graph that ships). A package, project reference or advisory in any configuration counts. Each package and project
+    records the configurations it appeared in; a project counts as restored only if every configuration restored it."""
+    out: dict = {"projects": {}, "packages": {}, "vulnerabilities": {}, "configurations": list(graphs)}
+    for cfg, g in graphs.items():
+        for rel, pr in g["projects"].items():
+            o = out["projects"].get(rel)
+            if o is None:
+                o = out["projects"][rel] = {**pr, "direct": dict(pr["direct"]), "tfms": list(pr["tfms"]),
+                                            "project_refs": list(pr["project_refs"]), "configurations": []}
+                if "restore_errors" in pr:
+                    o["restore_errors"] = list(pr["restore_errors"])
+            else:
+                for n, v in pr["direct"].items():
+                    o["direct"].setdefault(n, v)
+                o["tfms"] = sorted(set(o["tfms"]) | set(pr["tfms"]))
+                o["project_refs"] = sorted(set(o["project_refs"]) | set(pr["project_refs"]))
+                o["restored"] = o["restored"] and pr["restored"]
+                errs = pr.get("restore_errors", [])
+                if errs:
+                    o["restore_errors"] = o.get("restore_errors", []) + [e for e in errs if e not in o.get("restore_errors", [])]
+            o["configurations"].append(cfg)
+        for key, p in g["packages"].items():
+            o = out["packages"].setdefault(key, {"sha512": p["sha512"], "deps": {}, "direct_in": set(), "in_projects": set(),
+                                                 "configurations": []})
+            o["sha512"] = o["sha512"] or p["sha512"]
+            for cn, cv in p["deps"].items():
+                o["deps"].setdefault(cn, cv)
+            o["direct_in"] |= p["direct_in"]
+            o["in_projects"] |= p["in_projects"]
+            o["configurations"].append(cfg)
+        for key, v in g["vulnerabilities"].items():
+            o = out["vulnerabilities"].setdefault(key, {**v, "projects": set()})
+            o["projects"] |= v["projects"]
+    return out
+
+
+def only_in(graph: dict, p: dict) -> list[str] | None:
+    """The configurations a package appeared in, when that is not all of them (None for a single-configuration graph
+    or a package in every configuration: nothing to say, and the SBOM and deps.delta stay as they were)."""
+    every = graph.get("configurations") or []
+    mine = p.get("configurations") or every
+    return sorted(mine) if len(every) > 1 and set(mine) != set(every) else None
+
+
 # ---------------------------------------------------------------- build inputs outside the package graph
 
 
@@ -168,6 +215,8 @@ def cyclonedx(graph: dict, inputs: dict, *, name: str, sha: str, sdk: str) -> di
         c = {"type": "library", "bom-ref": purl(n, v), "name": n, "version": v, "purl": purl(n, v),
              "scope": "required",
              "properties": [{"name": "countersign:direct_in", "value": ", ".join(sorted(p["direct_in"]))}] if p["direct_in"] else []}
+        if only_in(graph, p):
+            c["properties"].append({"name": "countersign:configurations", "value": ", ".join(only_in(graph, p))})
         if p["sha512"]:
             c["hashes"] = [{"alg": "SHA-512", "content": p["sha512"]}]
         if not c["properties"]:
@@ -251,13 +300,13 @@ def delta(base: dict, head: dict, base_inputs: dict, head_inputs: dict, allowed:
             for v in sorted(hv):
                 p = head["packages"][(name, v)]
                 added.append({"package": name, "version": v, "purl": purl(name, v), "direct": bool(p["direct_in"]),
-                              "direct_in": sorted(p["direct_in"]), "via": _via(head, name, v)})
+                              "direct_in": sorted(p["direct_in"]), "via": _via(head, name, v), **_configs(head, p)})
         elif hv != bn[key][1]:
             bv = bn[key][1]
             for v in sorted(hv - bv):
                 p = head["packages"][(name, v)]
                 changed.append({"package": name, "from": sorted(bv), "to": v, "purl": purl(name, v),
-                                "direct": bool(p["direct_in"]), "via": _via(head, name, v)})
+                                "direct": bool(p["direct_in"]), "via": _via(head, name, v), **_configs(head, p)})
     for key, (name, bv) in sorted(bn.items()):
         if key not in hn:
             removed.append({"package": name, "versions": sorted(bv)})
@@ -294,7 +343,9 @@ def delta(base: dict, head: dict, base_inputs: dict, head_inputs: dict, allowed:
     reasons = []
     if unallowed:
         reasons.append(f"{len(unallowed)} new package(s)/version(s) not allowed by the mandate: "
-                       + ", ".join(f"{x['package']} {x.get('version') or x.get('to')}" for x in unallowed[:8]))
+                       + ", ".join(f"{x['package']} {x.get('version') or x.get('to')}"
+                                   + (f" ({', '.join(x['configurations'])} only)" if x.get("configurations") else "")
+                                   for x in unallowed[:8]))
     if new_sources:
         reasons.append("new package feed(s): " + ", ".join(new_sources))
     if new_vulns:
@@ -332,6 +383,11 @@ def delta(base: dict, head: dict, base_inputs: dict, head_inputs: dict, allowed:
         "counts": {"base_packages": len(base["packages"]), "head_packages": len(head["packages"]),
                    "base_projects": len(base["projects"]), "head_projects": len(head["projects"])},
     }
+
+
+def _configs(graph: dict, p: dict) -> dict:
+    c = only_in(graph, p)
+    return {"configurations": c} if c else {}
 
 
 def _vjson(v: dict) -> dict:

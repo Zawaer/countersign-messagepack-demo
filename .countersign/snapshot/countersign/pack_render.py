@@ -9,6 +9,7 @@ the evidence (findings, code excerpts, test runs, checks); and, folded, the full
 from __future__ import annotations
 
 import html
+import re
 from pathlib import Path
 
 from .common import now_iso
@@ -45,8 +46,133 @@ def _rulings(p: dict) -> list[dict]:
     return [r for r in (p.get("adjudication") or {}).get("rulings", []) if not r.get("stale")]
 
 
+# --- first-screen shortening (render only: the full text is always one tap away, in a fold) -------------------------
+
+REASON_SEPS = (". ", " (and ", ", e.g. ", ", mostly ")  # never split "major issue: <title>": the title is the story
+TEXT_SEPS = (": ", "; ", ". ", ", so ", " (")
+
+
+def _split(text: str, limit: int, seps: tuple = TEXT_SEPS, least: int = 24) -> tuple[str, str]:
+    """(headline, rest): cut a long sentence at its first natural break (outside parentheses) that leaves a headline of
+    `least`..`limit` characters, trying the separators in order. Short text, text with no such break, or a rest too
+    short to be worth a tap stays whole."""
+    head, rest = _split_at(text, limit, seps, least)
+    return (text, "") if rest and len(rest) < 36 else (head, rest)
+
+
+def _split_at(text: str, limit: int, seps: tuple, least: int) -> tuple[str, str]:
+    if len(text) <= limit:
+        return text, ""
+    depth, top = 0, []
+    for ch in text:
+        top.append(depth == 0)
+        depth += (ch in "([") - (ch in ")]")
+    for sep in seps:
+        i = text.find(sep, least)
+        while 0 <= i <= limit and (not top[i] or sep == ". " and text[max(0, i - 3):i] in ("e.g", "i.e")):
+            i = text.find(sep, i + 1)
+        if 0 <= i <= limit:
+            return text[:i + 1] if sep == ". " else text[:i], text[i:].lstrip(".;:, ")
+    if seps is REASON_SEPS or len(text) <= 2 * limit:
+        return text, ""
+    near = [i for i in (next((j for j in _finds(text, sep, least) if top[j]), -1) for sep in seps) if 0 <= i <= 2 * limit]
+    if near:  # a wall of text: its first full clause, if that is short enough
+        i = min(near)
+        return text[:i + 1] if text[i:i + 2] == ". " else text[:i], text[i:].lstrip(".;:, ")
+    cut = next((i for i in range(limit, least, -1) if text[i] == " " and top[i]), limit)  # a wall of text: cut at a word
+    return text[:cut] + " \u2026", "\u2026" + text[cut:]
+
+
+def _finds(text: str, sep: str, start: int):
+    i = text.find(sep, start)
+    while i >= 0:
+        yield i
+        i = text.find(sep, i + 1)
+
+
+def _mutation_detail(t: dict | None) -> str | None:
+    return next((r["detail"] for r in (t or {}).get("reasons", []) if r.get("code") == "tests_kill_no_mutant"), None)
+
+
+def _mutation_short(detail: str) -> str:
+    """`the tests supporting REQ-x (...) kill no mutant on its lines (...); no test kills any of the 2 mutant(s) there`
+    -> `Its tests kill none of the 2 planted mutants on its lines`."""
+    m = re.search(r"any of the (\d+) mutant", detail)
+    n = int(m.group(1)) if m else 0
+    return (f"Its tests kill none of the {n} planted mutant{'' if n == 1 else 's'} on its lines" if n
+            else "Its tests kill no planted mutant on its lines")
+
+
+def _mutation_check_line(p: dict) -> str | None:
+    """tests.mutation in one line: `tests kill 2 of 8 planted mutants; survivors at TypeCollector.cs:239, ...`."""
+    c = next((t for t in p["checked_by"]["tools"] if t["id"] == "tests.mutation"), None)
+    m = re.match(r"(\d+) mutants? of the changed source lines: (\d+) killed", (c or {}).get("summary") or "")
+    if not m:
+        return None
+    surv = re.search(r"surviving hunks: ([^;]+)", c["summary"])
+    return f"tests kill {m.group(2)} of {m.group(1)} planted mutants" + (f"; survivors at {surv.group(1)}" if surv else "")
+
+
+def _trace_why(p: dict, t: dict) -> tuple[str, str]:
+    """The trace row's headline and the rest. A mutation refusal becomes one plain line; its detail is folded."""
+    tr = next((x for x in p["trust"] if x["id"] == t["id"]), None)
+    det = _mutation_detail(tr)
+    if det and t["why"].lower().startswith(det.lower()[:40]):
+        line = _mutation_check_line(p)
+        return _mutation_short(det), t["why"] + (f". Whole change: {line}." if line else "")
+    return _split(t["why"], 80)
+
+
+def _ruling_line(p: dict, r: dict) -> str:
+    """One plain line per adjudicated dispute, counted from the ruling's own supported/unsupported claims:
+    `Gemini on N1: backs 2 of 3 claims for Claude's 'not met', 2 of 4 for 'met'`. The full ruling is folded under it."""
+    adj = _name(p["adjudication"]["reviewer"])
+    claims = [(x.get("reviewer"), True) for x in r.get("supported", [])] + [(x.get("reviewer"), False) for x in r.get("unsupported", [])]
+
+    def tally(ns: set) -> tuple[int, int]:
+        mine = [ok for n, ok in claims if n in ns]
+        return sum(mine), len(mine)
+
+    dispute = str(r.get("dispute", ""))
+    if dispute.startswith("finding:"):
+        who, _, fid = dispute.split(":", 1)[1].partition(":")
+        k, n = tally({who})
+        return f"{adj} on {_name(who)} {fid}: backs {k} of {n} of its claims"
+    tr = next((x for x in p["trust"] if x["id"] == dispute), None)
+    verdicts = {v["reviewer"]: v["verdict"] for v in (tr or {}).get("reviewers", [])}
+    no = [n for n, v in verdicts.items() if v != "met"]
+    yes = {n for n, v in verdicts.items() if v == "met"}
+    parts = []
+    if no:
+        k, n = tally(set(no))
+        parts.append(f"{k} of {n} claims for {' and '.join(_name(x) for x in no)}'s 'not met'")
+    if yes:
+        k, n = tally(yes)
+        parts.append(f"{k} of {n} for 'met'")
+    return f"{adj} on {_short_id(dispute)}: " + (("backs " + ", ".join(parts)) if parts else "see the full ruling")
+
+
+def _short_command(sg: dict) -> str:
+    """`countersign sign 2234 --as Toivo --decision … --note "…"`: the shape, without the alternatives."""
+    return re.sub(r'"\.\.\."', '"…"', re.sub(r"<[^>]+>", "…", sg["command"]))
+
+
 def _sim(p: dict) -> bool:
     return bool(p.get("simulated"))
+
+
+def _html_inline(t: str) -> str:
+    return html.escape(t, quote=False)
+
+
+def _peripheral(c: dict) -> str:
+    n = len(c.get("refused_peripheral") or [])
+    return f"{n} peripheral refusal{'' if n == 1 else 's'}"
+
+
+def _more_risks(c: dict) -> str:
+    n = len(c.get("residual_more") or [])
+    return f"{n} more risk{'' if n == 1 else 's'} that do not set the tier"
 
 
 # --- CLI ------------------------------------------------------------------------------
@@ -56,11 +182,12 @@ def card(p: dict) -> str:
     out = [f"Countersign evidence pack, change {p['change']} ({p['branch']} {p['base']}..{p['head']})" + (" [SIMULATED]" if _sim(p) else ""),
            s["headline"], "",
            f"Recommended tier: {p['tier'].upper()}    owner: {p['owner']}" + (f" (FYI {', '.join(p['notify'])})" if p["notify"] else ""),
-           "Why:", *(f"  {i}. {r['text']}" for i, r in enumerate(c["reasons"], 1))]
+           "Why:", *(f"  {i}. " + _cli_line(*_split(r["text"], 110, REASON_SEPS)) for i, r in enumerate(c["reasons"], 1))]
     if c["more_drivers"]:
         out.append(f"     (all {c['more_drivers']} tier drivers are in the pack)")
     out += ["", "Requirement trace:"]
-    out += [f"  {t['id']:<14} {t['label'].upper():<12} {t['why']}" for t in c["trace"]]
+    out += [f"  {t['id']:<14} {t['label'].upper():<12} " + _cli_line(*_trace_why(p, t)) for t in c["trace"]]
+    out += [f"  {_ruling_line(p, r)} (advisory; full ruling in the pack)" for r in _rulings(p)]
     out += ["", "What the AI found:"] + ([f"  [{f['severity']}] {f['title']} ({f['key']})" for f in c["found"]] or ["  no verified findings"])
     if c["found_total"] > len(c["found"]):
         out.append(f"  (+{c['found_total'] - len(c['found'])} more)")
@@ -68,20 +195,32 @@ def card(p: dict) -> str:
     out += [f"  - {g['topic']} -> {'; '.join(g['who_should_decide'])} (raised by {', '.join(_name(n) for n in g['raised_by'])})" for g in c["refused"]]
     if c["refused_clauses"]:
         out.append(f"  - whether {', '.join(c['refused_clauses'])} {'is' if len(c['refused_clauses']) == 1 else 'are'} met -> {p['owner']}")
+    if c.get("refused_peripheral"):
+        out.append(f"  ({_peripheral(c)}, out of scope: in the pack)")
     if not (c["refused"] or c["refused_clauses"]):
         out.append("  nothing")
-    for r in _rulings(p):
-        out.append(f"  adjudicator {_name(p['adjudication']['reviewer'])} on {r.get('dispute')}: {_ruling_text(r)}")
     sc = p.get("supply_chain")
     if sc:
         out += ["", f"Supply chain (from the build): {sc['line']}"]
         out += [f"  NEW ADVISORY {v['package']} {v['version']} {v['severity']} {v['id']}" for v in (sc.get("deps") or {}).get("vulnerabilities_new", [])]
-    out += ["", "Not checked:"] + [f"  {x['id']}: {x['reason']}" for x in c["not_checked"]]
+    out += ["", "Not checked:"] + [f"  {x['id']}: " + _cli_line(*_split(x["reason"], 60)) for x in c["not_checked"]]
     if c["known_gaps"]:
         out.append(f"  standing gaps: {', '.join(c['known_gaps'])}")
     out += ["", "Residual risk you accept by signing:"] + [f"  - {r['text']}" for r in c["residual"]]
-    out += ["", f"{c['sign']['owner']} signs: {c['sign']['statement']}", f"  {c['sign']['command']}"]
+    if c.get("residual_more"):
+        out.append(f"  (+{len(c['residual_more'])} more in the pack)")
+    sg = c["sign"]
+    out += ["", f"{sg['owner']} signs: {sg['statement']}", "  " + _short_command(sg)]
+    fs = sg.get("findings") or []
+    if fs:
+        out.append(f"  and rate the {len(fs)} verified finding{'' if len(fs) == 1 else 's'}, one flag each (unrated if left out): "
+                   f"--finding {fs[0]['ref']}=<accepted|rejected|unsure>" + (f" ... {fs[-1]['ref']}" if len(fs) > 1 else ""))
+        out.append("  (" + ", ".join(f"{r['ref']} {r['severity']}" for r in fs) + "; the full command is in pack.md)")
     return "\n".join(out)
+
+
+def _cli_line(head: str, rest: str) -> str:
+    return head + (" [...]" if rest else "")
 
 
 # --- Markdown (GitHub PR comment) ---------------------------------------------------------
@@ -102,18 +241,60 @@ def _md_ev_link(ref: str, label: str) -> str:
     return f"[`{label}`](#{ref})"
 
 
+def _md_fold(head: str, rest: str) -> str:
+    """Markdown headline with the rest folded (one line, so it also works inside list items and table cells)."""
+    return f"{head} <details><summary>more</summary>{_html_inline(rest)}</details>" if rest else head
+
+
+def _md_ruling(p: dict, r: dict) -> list[str]:
+    """One line per dispute (the details summary); the adjudicator's note and full ruling folded under it."""
+    def items(xs: list) -> list[str]:
+        flat = (lambda t: str(t or "").replace("\n", " "))
+        return [f"- **{_name(x.get('reviewer', '?'))}**: {flat(x.get('claim'))} ({flat(x.get('why'))})" for x in xs] or ["- nothing"]
+    return ([f"<details><summary>{_html_inline(_ruling_line(p, r))} (advisory)</summary>", ""]
+            + ([str(r["note"]).replace("\n", " "), ""] if r.get("note") else [])
+            + ["**Backed by the cited evidence**", "", *items(r.get("supported", [])), "", "**Not backed**", "", *items(r.get("unsupported", [])), "",
+               "**What would settle it**", "", *(f"- {x}" for x in r.get("evidence_that_would_settle", [])), "", "</details>", ""])
+
+
+def _md_sign(sg: dict) -> list[str]:
+    out = [f"**{sg['owner']} signs** ({'required' if sg['required'] else 'not required: AI-cleared, spot-checks apply'}; "
+           f"{', '.join(sg['decisions'])})", "", f"```\n{_short_command(sg)}\n```", ""]
+    n = len(sg.get("findings") or [])
+    if n:
+        out += [f"<details><summary>And rate the {n} verified finding{'' if n == 1 else 's'} (full command)</summary>", "",
+                "One `--finding` flag each: `accepted` (real), `rejected` (a false positive) or `unsure`, optionally `:reason`. "
+                "A finding without a flag is recorded as `unrated`.", ""]
+        out += [f"- `{r['ref']}` ({r['severity']}): {_html_inline(r['title'])}" for r in sg["findings"]]
+        out += ["", f"```\n{sg.get('command_with_findings', sg['command'])}\n```", "", "</details>", ""]
+    out += ["<details><summary>What your signature says</summary>", "", f"> {sg['statement']}", "",
+            "It covers the sha256 of this pack's canonical JSON, the decision, your verdict on each finding, the time and the signer, "
+            "and is appended to the hash-chained ledger.", "", "</details>", ""]
+    return out
+
+
 def _md_card(p: dict) -> list[str]:
     c, s = p["card"], p["story"]
+    rulings = {str(r.get("dispute")): r for r in _rulings(p)}
     out = [f"## Countersign: change {p['change']} is **{p['tier'].upper()}**, owner **{p['owner']}**" + (" (SIMULATED inputs)" if _sim(p) else ""), "",
            f"**{s['headline']}**", "", f"{s['what']} {s['why']}", ""]
     if p.get("mutation"):
         out += [f"> Seeded mutant of {p['mutation'].get('of')}: {p['mutation'].get('description')}", ""]
-    out += [f"**Why {p['tier']}**", ""] + [f"{i}. {r['text']} ([evidence]({r['link']}))" for i, r in enumerate(c["reasons"], 1)]
+    out += [f"**Why {p['tier']}**", ""]
+    for i, r in enumerate(c["reasons"], 1):
+        head, rest = _split(r["text"], 110, REASON_SEPS)
+        out.append(f"{i}. " + _md_fold(f"{head} ([evidence]({r['link']}))", rest))
     if c["more_drivers"]:
         out.append(f"\n<sub>All {c['more_drivers']} tier drivers are under Full detail.</sub>")
     out += ["", "**Requirement trace**", "", "| Status | Clause | Why |", "|---|---|---|"]
-    out += [f"| **{t['label'].upper()}** | [{t['id']}](#{t['anchor']}) | {_cell(t['why'])} |" for t in c["trace"]]
-    out += ["", "**What the AI found**", ""]
+    for t in c["trace"]:
+        head, rest = _trace_why(p, t)
+        out.append(f"| **{t['label'].upper()}** | [{_short_id(t['id'])}](#{t['anchor']}) | " + _cell(_md_fold(head, rest)) + " |")
+    out.append("")
+    for t in c["trace"]:
+        if t["id"] in rulings:
+            out += _md_ruling(p, rulings[t["id"]])
+    out += ["**What the AI found**", ""]
     for f in c["found"]:
         chips = " ".join(_md_ev_link(x["ref"], x["label"]) for x in f["chips"])
         out.append(f"- **{f['severity']}** [{f['title']}](#{f['anchor']}) ({_name(f['reviewer'])} {f['key'].split(':', 1)[1]}"
@@ -122,23 +303,33 @@ def _md_card(p: dict) -> list[str]:
         out.append("- No verified findings.")
     if c["found_total"] > len(c["found"]):
         out.append(f"- +{c['found_total'] - len(c['found'])} more under Evidence.")
-    out += ["", "<a id=\"refused\"></a>**What the AI refused to decide, and who should**", ""]
+    out.append("")
+    for f in c["found"]:
+        if "finding:" + f["key"] in rulings:
+            out += _md_ruling(p, rulings["finding:" + f["key"]])
+    out += ["<a id=\"refused\"></a>**What the AI refused to decide, and who should**", ""]
     for g in c["refused"]:
-        out.append(f"- <a id=\"{g['anchor']}\"></a>{g['topic']}. *Why:* {g['why']} *Who:* {'; '.join(g['who_should_decide'])} "
-                   f"(raised by {', '.join(_name(n) for n in g['raised_by'])})")
+        out.append(f"- <a id=\"{g['anchor']}\"></a>**{g['topic']}** *Who:* {'; '.join(g['who_should_decide'])} "
+                   f"(raised by {', '.join(_name(n) for n in g['raised_by'])}) <details><summary>why</summary>{_html_inline(g['why'])}</details>")
     if c["refused_clauses"]:
-        out.append(f"- Whether {', '.join(f'[{x}](#chain-{x})' for x in c['refused_clauses'])} "
+        out.append(f"- Whether {', '.join(f'[{_short_id(x)}](#chain-{x})' for x in c['refused_clauses'])} "
                    f"{'is' if len(c['refused_clauses']) == 1 else 'are'} met: see the trace. *Who:* {p['owner']}")
     if not (c["refused"] or c["refused_clauses"]):
         out.append("- Nothing: every clause was proven and no reviewer refused a topic.")
-    out += ["", "**Not checked, and why**", ""] + [f"- `{x['id']}`: {x['reason']}" for x in c["not_checked"]]
+    if c.get("refused_peripheral"):
+        out += ["", f"<details id=\"refused-peripheral\"><summary>{_peripheral(c)} (out of scope for this change)</summary>"
+                + " · ".join(f"<a id=\"{g['anchor']}\"></a>{_html_inline(g['topic'])} ({_name(g['raised_by'][0])})" for g in c["refused_peripheral"])
+                + "</details>"]
+    out += ["", "**Not checked, and why**", ""]
+    for x in c["not_checked"]:
+        head, rest = _split(x["reason"], 60)
+        out.append(f"- `{x['id']}`: " + _md_fold(head, rest))
     if c["known_gaps"]:
         out.append(f"- Standing pipeline gaps: {', '.join(f'`{g}`' for g in c['known_gaps'])}")
     out += ["", "**Residual risk you accept by signing**", ""] + [f"- {r['text']}" for r in c["residual"]]
-    sg = c["sign"]
-    out += ["", f"**{sg['owner']} signs** ({'required' if sg['required'] else 'not required: AI-cleared, spot-checks apply'}; "
-                f"allowed: {', '.join(sg['decisions'])})", "", f"> {sg['statement']}", "", f"```\n{sg['command']}\n```", ""]
-    return out
+    if c.get("residual_more"):
+        out += ["", f"<details><summary>{_more_risks(c)}</summary>" + " · ".join(_html_inline(r["text"]) for r in c["residual_more"]) + "</details>"]
+    return out + [""] + _md_sign(c["sign"])
 
 
 def _md_trust(p: dict) -> list[str]:
@@ -388,10 +579,15 @@ th{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;
 .v-met{color:var(--ok);font-weight:600}.v-not_met{color:var(--bad);font-weight:600}.v-cannot_determine,.v-none{color:var(--warn);font-weight:600}
 details.fold{margin-top:32px;border-top:1px solid var(--line);padding-top:8px}details.fold>summary{font-weight:600;cursor:pointer;padding:8px 0}
 details.mini>summary{cursor:pointer;color:var(--link);font-size:14px}
+details.clip>summary{list-style:none;cursor:pointer}details.clip>summary::-webkit-details-marker{display:none}
+details.clip>summary::after{content:" more";color:var(--link);font-size:13px;white-space:nowrap}details.clip[open]>summary::after{content:" less"}
+details.clip>div{margin:4px 0 2px}details.clip>div p{margin:2px 0 6px}details.adj{margin-top:2px}details.adj>summary{font-size:14px}
+pre.cmd span{white-space:nowrap}pre.cmd{white-space:pre-wrap;overflow-wrap:normal;margin:6px 0 4px}.sign details.mini{margin-top:4px}
 :target{scroll-margin-top:8px;outline:2px solid var(--focus);outline-offset:4px;border-radius:6px}
 .ok{color:var(--ok);font-weight:600}.no{color:var(--bad);font-weight:600}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (min-width:720px){body{font-size:16px}main{padding:24px 32px 64px}h1{font-size:24px}.story{font-size:15px}.card{padding:16px 24px 24px}}
+@media (max-width:480px){.eyebrow .range{display:none}}
 @media print{details{display:block}details>*{display:block}.jump{display:none}}
 """
 
@@ -424,26 +620,60 @@ def _table(headers: list[str], rows: list[list[str]], numeric: frozenset = froze
     return f'<div class="scroll"><table>{cap}<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
 
 
+def _clip(head: str, rest: str, cls: str = "clip") -> str:
+    """A headline that opens to the rest in one tap (both already HTML-escaped). No rest, no fold."""
+    if not rest:
+        return head
+    return f'<details class="{cls}"><summary>{head}</summary><div class="sm mut">{rest}</div></details>'
+
+
+def _html_ruling(p: dict, r: dict, chain: bool = True) -> str:
+    """One line per dispute; the adjudicator's note and full ruling folded under it."""
+    def items(xs: list, title: str) -> str:
+        lis = "".join(f'<li><b>{_e(_name(x.get("reviewer", "?")))}</b>: {_e(x.get("claim"))} <span class="mut">({_e(x.get("why"))})</span></li>' for x in xs)
+        return f"<p><b>{title}</b></p><ul>{lis or '<li>nothing</li>'}</ul>"
+
+    body = ((f'<p>{_e(r["note"])}</p>' if r.get("note") else "") + items(r.get("supported", []), "Backed by the cited evidence")
+            + items(r.get("unsupported", []), "Not backed") + "<p><b>What would settle it</b></p><ul>"
+            + "".join(f"<li>{_e(x)}</li>" for x in r.get("evidence_that_would_settle", [])) + "</ul>")
+    if chain and not str(r.get("dispute", "")).startswith("finding:"):
+        body += f'<p><a href="#chain-{_e(r.get("dispute"))}">The full chain for {_e(_short_id(str(r.get("dispute"))))}</a></p>'
+    return _clip(f'{_e(_ruling_line(p, r))} <span class="mut">(advisory)</span>', body, "clip adj")
+
+
 def _html_card(p: dict) -> str:
     c, st = p["card"], p["story"]
-    reasons = "".join(f'<li>{_e(r["text"])} <a class="sm" href="{_e(r["link"])}">evidence</a></li>' for r in c["reasons"])
+    rulings = {str(r.get("dispute")): r for r in _rulings(p)}
+    reasons = ""
+    for r in c["reasons"]:
+        head, rest = _split(r["text"], 110, REASON_SEPS)
+        link = f' <a class="sm" href="{_e(r["link"])}">evidence</a>'
+        reasons += f"<li>{_clip(_e(head) + link, _e(rest))}</li>"
     more = (f'<p class="sm mut">All {c["more_drivers"]} tier drivers are in <a href="#all-drivers">full detail</a>.</p>' if c["more_drivers"] else "")
-    trace = "".join(f'<li>{_status(t["label"])}<div><a href="#{_e(t["anchor"])}"><b title="{_e(t["id"])}">{_e(_short_id(t["id"]))}</b></a> '
-                    f'{_e(t["why"])}</div></li>' for t in c["trace"])
+    trace = ""
+    for t in c["trace"]:
+        head, rest = _trace_why(p, t)
+        idl = f'<a href="#{_e(t["anchor"])}"><b title="{_e(t["id"])}">{_e(_short_id(t["id"]))}</b></a> '
+        adj = _html_ruling(p, rulings[t["id"]]) if t["id"] in rulings else ""
+        trace += f'<li>{_status(t["label"])}<div>{_clip(idl + _e(head), _e(rest))}{adj}</div></li>'
     found = "".join(
         f'<li>{_sev(f["severity"])}<div><a href="#{_e(f["anchor"])}">{_e(f["title"])}</a> '
         f'<span class="mut sm">{_e(_name(f["reviewer"]))} {_e(f["key"].split(":", 1)[1])}'
         + (f', also {_e(", ".join(_name(n) for n in f["shared_with"]))}' if f["shared_with"] else ", only this reviewer") + "</span>"
-        f'<div class="chips">{"".join(_chip(x["ref"], x["label"]) for x in f["chips"])}</div></div></li>' for f in c["found"])
+        f'<div class="chips">{"".join(_chip(x["ref"], x["label"]) for x in f["chips"])}</div>'
+        + (_html_ruling(p, rulings["finding:" + f["key"]]) if "finding:" + f["key"] in rulings else "") + "</div></li>" for f in c["found"])
     if not c["found"]:
         found = '<li><span class="st st-proven">none</span><div>No verified findings.</div></li>'
     if c["found_total"] > len(c["found"]):
         found += f'<li><span></span><div class="sm"><a href="#findings">+{c["found_total"] - len(c["found"])} more findings</a></div></li>'
-    refused = "".join(
-        f'<li id="{_e(g["anchor"])}"><span class="st st-refused"><span aria-hidden="true">?</span>open</span><div><b>{_e(g["topic"])}</b>'
-        f'<div class="sm">Who: <b>{_e("; ".join(g["who_should_decide"]))}</b> '
-        f'<span class="mut">(raised by {_e(", ".join(_name(n) for n in g["raised_by"]))})</span></div>'
-        f'<details class="mini"><summary>Why the AI would not decide</summary><p class="sm">{_e(g["why"])}</p></details></div></li>' for g in c["refused"])
+    refused = ""
+    for g in c["refused"]:
+        head, rest = _split(g["topic"], 80)
+        why = (f"{_e(rest)}<br>" if rest else "") + f'<b>Why the AI would not decide:</b> {_e(g["why"])}'
+        refused += (f'<li id="{_e(g["anchor"])}"><span class="st st-refused"><span aria-hidden="true">?</span>open</span><div>'
+                    f'{_clip("<b>" + _e(head) + "</b>", why)}'
+                    f'<div class="sm">Who: <b>{_e("; ".join(g["who_should_decide"]))}</b> '
+                    f'<span class="mut">(raised by {_e(", ".join(_name(n) for n in g["raised_by"]))})</span></div></div></li>')
     if c["refused_clauses"]:
         links = ", ".join(f'<a href="#chain-{_e(x)}">{_e(_short_id(x))}</a>' for x in c["refused_clauses"])
         refused += (f'<li><span class="st st-refused"><span aria-hidden="true">?</span>open</span><div><b>Whether {links} '
@@ -451,14 +681,26 @@ def _html_card(p: dict) -> str:
                     f'Who: <b>{_e(p["owner"])}</b></div></div></li>')
     if not refused:
         refused = '<li><span class="st st-proven">none</span><div>Every clause was proven and no reviewer refused a topic.</div></li>'
-    nc = "".join(f"<li><code>{_e(x['id'])}</code>: {_e(x['reason'])}</li>" for x in c["not_checked"])
+    if c.get("refused_peripheral"):
+        refused += (f'<li><span></span><div class="sm"><details class="mini" id="refused-peripheral"><summary>{_e(_peripheral(c))} (out of scope for this change)</summary><ul>'
+                    + "".join(f'<li id="{_e(g["anchor"])}">{_e(g["topic"])} <span class="mut">(who: {_e("; ".join(g["who_should_decide"]))}; '
+                              f'raised by {_e(", ".join(_name(n) for n in g["raised_by"]))})</span></li>' for g in c["refused_peripheral"])
+                    + "</ul></details></div></li>")
+    nc = ""
+    for x in c["not_checked"]:
+        head, rest = _split(x["reason"], 60)
+        nc += "<li>" + _clip(f"<code>{_e(x['id'])}</code>: {_e(head)}", _e(rest)) + "</li>"
     if c["known_gaps"]:
         nc += f'<li class="mut">Standing pipeline gaps: {_e(", ".join(c["known_gaps"]))} (<a href="#not-checked">why</a>)</li>'
     residual = "".join(f'<li>{_e(r["text"])} <a class="sm" href="{_e(r["link"])}">see</a></li>' for r in c["residual"])
+    if c.get("residual_more"):
+        residual += (f'<li class="mut"><details class="mini"><summary>{_e(_more_risks(c))}</summary><ul>'
+                     + "".join(f'<li>{_e(r["text"])} <a class="sm" href="{_e(r["link"])}">see</a></li>' for r in c["residual_more"])
+                     + "</ul></details></li>")
     sg = c["sign"]
     return f"""
 <section class="card" aria-labelledby="card-h" id="card">
-<p class="eyebrow"><span id="card-h">Countersign sign-off card</span> &middot; change {_e(p["change"])} &middot; <span class="mono">{_e(p["base"])}..{_e(p["head"])}</span></p>
+<p class="eyebrow"><span id="card-h">Countersign sign-off card</span> &middot; change {_e(p["change"])}<span class="range"> &middot; <span class="mono">{_e(p["base"])}..{_e(p["head"])}</span></span></p>
 <div class="verdict">{_tier(p["tier"])}<span><b>{_e(p["owner"])}</b> {"must countersign" if sg["required"] else "is notified (AI-cleared)"}
 {('<span class="mut sm"> &middot; FYI ' + _e(", ".join(p["notify"])) + "</span>") if p["notify"] else ""}</span></div>
 <h1>{_e(st["headline"])}</h1>
@@ -469,11 +711,26 @@ def _html_card(p: dict) -> str:
 <h3 id="refused">What the AI refused to decide, and who should</h3><ul class="rows">{refused}</ul>
 <h3>Not checked, and why</h3><ul class="sm">{nc or "<li>Everything mandated ran.</li>"}</ul>
 <h3>Residual risk you accept by signing</h3><ul class="sm">{residual}</ul>
-<div class="sign"><p><b>{_e(sg["owner"])} signs</b> <span class="mut sm">({"required" if sg["required"] else "not required: spot-checks apply"};
-allowed: {_e(", ".join(sg["decisions"]))})</span></p><p><q>{_e(sg["statement"])}</q></p>
-<details class="mini"><summary>How to sign</summary><pre>{_e(sg["command"])}</pre>
-<p class="mut sm">The signature covers the sha256 of this pack's canonical JSON, the decision, the time and the signer, and is appended to the hash-chained ledger.</p></details></div>
+{_html_sign(sg)}
 </section>"""
+
+
+def _html_sign(sg: dict) -> str:
+    """The sign-off in one command line; the per-finding flags and the signed statement one tap away."""
+    n = len(sg.get("findings") or [])
+    rate = ""
+    if n:
+        rows = "".join(f'<li><code>{_e(r["ref"])}</code> <span class="mut">({_e(r["severity"])})</span> {_e(r["title"])}</li>' for r in sg["findings"])
+        rate = (f'<details class="mini" id="sign-findings"><summary>and rate the {n} verified finding{"" if n == 1 else "s"} (full command)</summary>'
+                f'<p class="sm">One <code>--finding</code> flag each: <code>accepted</code> (real), <code>rejected</code> (a false positive) or '
+                f'<code>unsure</code>, optionally <code>:reason</code>. A finding without a flag is recorded as <code>unrated</code>.</p>'
+                f'<ul class="sm">{rows}</ul><pre>{_e(sg.get("command_with_findings", sg["command"]))}</pre></details>')
+    return (f'<div class="sign"><p><b>{_e(sg["owner"])} signs</b> <span class="mut sm">({"required" if sg["required"] else "not required: spot-checks apply"}; '
+            f'{_e(", ".join(sg["decisions"]))})</span></p>'
+            f'<pre class="cmd" aria-label="sign command">{" ".join(f"<span>{_e(w)}</span>" for w in _short_command(sg).split(" "))}</pre>{rate}'
+            f'<details class="mini"><summary>What your signature says</summary><p><q>{_e(sg["statement"])}</q></p>'
+            f'<p class="mut sm">It covers the sha256 of this pack\'s canonical JSON, the decision, your verdict on each finding, the time and the signer, '
+            f'and is appended to the hash-chained ledger.</p></details></div>')
 
 
 def _ev_chips(refs: list[str], ev: dict) -> str:
@@ -507,7 +764,7 @@ def _html_trust(p: dict) -> str:
                            f'<span class="mut sm">({r["verified"]}/{r["cited"]} verified)</span><div class="sm">{_e(r["basis"])}</div>'
                            f'<div class="chips">{_ev_chips(r["refs"] + r["unverified_refs"], ev)}</div></li>' for r in t["reviewers"])
             revs += "".join(f'<li><b>{_e(_name(n))}</b>: <span class="v-none">no verdict</span></li>' for n in t["missing"])
-            adj = (f'<p class="sm"><b>Adjudicator {_e(_name(p["adjudication"]["reviewer"]))}</b> (advisory, cannot clear): {_e(_ruling_text(t["adjudication"]))}</p>'
+            adj = (f'<div class="sm"><b>Adjudicator</b> <span class="mut">(advisory, cannot clear)</span>: {_html_ruling(p, t["adjudication"], chain=False)}</div>'
                    if t["adjudication"] else "")
             body = (f'<p><b>Refused:</b> {_e(t["why"])}</p><ol class="chain"><li><b>Who said what</b><ul>{revs}</ul></li>'
                     f'<li><b>Checks</b><ul class="sm">{checks}</ul></li></ol>{adj}'
@@ -542,7 +799,7 @@ def _html_panel(p: dict) -> str:
     if p.get("adjudication"):
         a = p["adjudication"]
         adj = (f'<div class="box"><h4>{_e(_name(a["reviewer"]))} <span class="mut sm">adjudicator &middot; {_e(a["model"])} &middot; advisory: adds reasons, never clears</span></h4>'
-               + ("".join(f'<p class="sm"><b>{_e(r.get("dispute"))}</b>: {_e(_ruling_text(r))}</p>' for r in _rulings(p)) or '<p class="sm mut">No rulings on current disputes (stale).</p>')
+               + ("".join(f'<div class="sm">{_html_ruling(p, r)}</div>' for r in _rulings(p)) or '<p class="sm mut">No rulings on current disputes (stale).</p>')
                + "</div>")
     elif p.get("disputes"):
         adj = (f'<p class="sm mut">{len(p["disputes"])} disputed item(s) not adjudicated'

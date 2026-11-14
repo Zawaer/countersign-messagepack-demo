@@ -3,6 +3,9 @@
 Every model call made by `review-llm` / `adjudicate` appends one row automatically, from the API's `usage` field.
 Runs made outside the runner (Claude and Codex sessions, CI minutes) are added by hand with `source` saying how
 the numbers are known: "api usage field" | "estimate" | "unknown". Nothing is ever rewritten; corrections are new rows.
+Self-hosted calls (provider verda) are priced by GPU time, not tokens: the row carries `gpu`, `gpu_seconds`, `gpu_hours`
+and `basis`, `usd` is wall-clock x GPUs x the hourly rate (source "estimate"), and the per-token price table is never
+applied to them (the same model id is $0 on NVIDIA's free tier, which says nothing about our GPUs).
 """
 
 from __future__ import annotations
@@ -51,19 +54,28 @@ def price_usd(prices: dict, model: str, tokens_in, tokens_out) -> float | None:
     return round((tokens_in * p["in"] + tokens_out * p["out"]) / 1e6, 4)
 
 
+def row_usd(prices: dict, r: dict) -> float | None:
+    """A row's cost: its own `usd`, else the token price, except for GPU-time rows (never priced per token)."""
+    if r.get("usd") is not None or r.get("gpu"):
+        return r.get("usd")
+    return price_usd(prices, r.get("model", ""), r.get("tokens_in"), r.get("tokens_out"))
+
+
 def append(ws: Workspace, *, provider: str, model: str, purpose: str, change: str | None, tokens_in: int | None,
-           tokens_out: int | None, source: str, usd: float | None = None, when: datetime | None = None) -> dict:
-    """Append one row (a JSON flow mapping, which is valid YAML) to the end of the `runs:` list."""
+           tokens_out: int | None, source: str, usd: float | None = None, when: datetime | None = None,
+           extra: dict | None = None) -> dict:
+    """Append one row (a JSON flow mapping, which is valid YAML) to the end of the `runs:` list.
+    `extra`: more fields for the row (self-hosted: gpu, gpu_seconds, gpu_hours, basis)."""
     p = path(ws)
     if not p.exists():
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(HEADER, encoding="utf-8")
     led = load(ws)
-    if usd is None:
+    if usd is None and not (extra or {}).get("gpu"):
         usd = price_usd(led.get("prices_usd_per_1m") or {}, model, tokens_in, tokens_out)
     row = {"when": (when or datetime.now(ZoneInfo("Europe/Helsinki"))).astimezone(ZoneInfo("Europe/Helsinki")).strftime("%Y-%m-%d %H:%M"),
            "provider": provider, "model": model, "purpose": purpose, "change": change,
-           "tokens_in": tokens_in, "tokens_out": tokens_out, "usd": usd, "source": source, "run_url": run_url()}
+           "tokens_in": tokens_in, "tokens_out": tokens_out, "usd": usd, "source": source, **(extra or {}), "run_url": run_url()}
     text = p.read_text(encoding="utf-8")
     with p.open("a", encoding="utf-8") as f:
         f.write(("" if text.endswith("\n") else "\n") + "  - " + json.dumps(row, ensure_ascii=False) + "\n")
@@ -98,7 +110,7 @@ def render(ws: Workspace) -> str:
     by_change: dict[str, dict] = defaultdict(lambda: {"usd": 0.0, "unknown": 0, "runs": 0, "who": set()})
     rows = []
     for r in runs:
-        usd = r.get("usd") if r.get("usd") is not None else price_usd(prices, r.get("model", ""), r.get("tokens_in"), r.get("tokens_out"))
+        usd = row_usd(prices, r)
         p = by_provider[r["provider"]]
         p["runs"] += 1
         p["in"] += r.get("tokens_in") or 0
@@ -120,7 +132,8 @@ def render(ws: Workspace) -> str:
         rows.append(f"| {r['when']} | {r['provider']} | {r['model']} | {r['purpose']}{link} | {', '.join(changes) or '-'} | "
                     f"{_tok(r.get('tokens_in'))} / {_tok(r.get('tokens_out'))}"
                     + (f" (total {r['tokens_total']:,})" if r.get("tokens_total") else "")
-                    + f" | {_money(usd)} | {r.get('source', 'unknown')} |")
+                    + f" | {_money(usd)} | {r.get('source', 'unknown')}"
+                    + (f" ({r['gpu']}, {r.get('gpu_seconds')} s wall-clock; {r.get('basis', '')})" if r.get("gpu") else "") + " |")
 
     m = load_mandate(ws)
     mm = m["measurement"]

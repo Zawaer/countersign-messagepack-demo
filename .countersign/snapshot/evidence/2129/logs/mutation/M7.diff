@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..b59bbec6 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -277,7 +277,7 @@ internal static class GeneratedFormatterCollector
+     private static bool IsPublicReadWrite(ISymbol member) => member switch
+     {
+         IPropertySymbol property => property.DeclaredAccessibility == Accessibility.Public
+-            && property.GetMethod is { DeclaredAccessibility: Accessibility.Public }
++            || property.GetMethod is { DeclaredAccessibility: Accessibility.Public }
+             && property.SetMethod is { DeclaredAccessibility: Accessibility.Public },
+         IFieldSymbol field => field.DeclaredAccessibility == Accessibility.Public && !field.IsReadOnly && !field.IsConst,
+         _ => false,

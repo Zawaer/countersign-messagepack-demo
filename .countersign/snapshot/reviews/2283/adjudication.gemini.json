@@ -1,0 +1,87 @@
+{
+  "reviewer": "gemini",
+  "model": "gemini-4-hydrogen",
+  "vendor": "Google",
+  "prompt_version": "adjudicate-v1",
+  "reviewed_at": "2026-11-14T11:28:46+02:00",
+  "role": "adjudicator: advisory; can add reasons and route to a human, never clears",
+  "disputes_given": [
+    "REQ-2283-N1",
+    "finding:claude:C1"
+  ],
+  "runner": {
+    "tool": "countersign adjudicate",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "calls": 1,
+    "json_repaired": false,
+    "raw": "reviews/2283/raw/adjudication.gemini.response.json"
+  },
+  "rulings": [
+    {
+      "dispute": "REQ-2283-N1",
+      "supported": [
+        {
+          "reviewer": "codex",
+          "claim": "The existing source-generator test suite passes in full (170/170).",
+          "why": "facts.json tests.full_suite passes with 170 passed, 0 failed, and 0 newly failing tests."
+        },
+        {
+          "reviewer": "nemotron",
+          "claim": "The full source-generator suite passes on head with no newly failing tests.",
+          "why": "facts.json tests.full_suite confirms 170 passed, 0 failed, and no failures on head or base."
+        },
+        {
+          "reviewer": "claude",
+          "claim": "The existing test suite passes, and ReportIfLocatedInCompilation filters out diagnostics not located in a syntax tree of the current compilation, including when TypeMustBeMessagePackObject uses a metadata callerSymbol.Locations[0].",
+          "why": "facts.json tests.full_suite confirms 170/170 pass; verified quotes at TypeCollector.cs:1446 and 1341 show the IsInSource + ContainsSyntaxTree check and callerSymbol.Locations[0] usage, and facts.json repro.claude.C1 confirms the scenario passes on base and fails on head."
+        }
+      ],
+      "unsupported": [
+        {
+          "reviewer": "codex",
+          "claim": "All existing analyzer diagnostics for types declared in the current compilation keep working unchanged.",
+          "why": "tests.full_suite only covers the 170 existing tests and does not cover an in-compilation type reached via a metadata generic member, where facts.json repro.claude.C1 shows behavior changed from base to head."
+        },
+        {
+          "reviewer": "nemotron",
+          "claim": "All existing analyzer diagnostics for types declared in the current compilation keep working unchanged.",
+          "why": "tests.full_suite only verifies the existing test suite and does not rule out regressions in uncovered cases such as repro.claude.C1."
+        },
+        {
+          "reviewer": "claude",
+          "claim": "class Item<T> worked on base per the issue table.",
+          "why": "The cited issue quote '| class Item<T> | ok |' is unverified offline and supports nothing."
+        }
+      ],
+      "evidence_that_would_settle": [
+        "Area owner ruling on whether REQ-2283-N1 covers uncovered cross-assembly generic scenarios (repro.claude.C1) or is scoped to the existing test suite.",
+        "An automated test asserting whether MsgPack003 is reported when a metadata generic member (Lib.Item<T>.Content) is instantiated with an in-compilation type lacking [MessagePackObject]."
+      ],
+      "route_to": "MessagePack.SourceGenerator area owner",
+      "note": "The existing 170-test suite passes, but facts.json repro.claude.C1 confirms a regression on head when an in-compilation type is reached through a metadata generic member."
+    },
+    {
+      "dispute": "finding:claude:C1",
+      "supported": [
+        {
+          "reviewer": "claude",
+          "claim": "ReportIfLocatedInCompilation drops diagnostics whose location is not in a syntax tree of the current compilation, causing MsgPack003 (located at callerSymbol.Locations[0]) to be dropped when callerSymbol is in metadata even if the target type is in the current compilation.",
+          "why": "Verified quotes at TypeCollector.cs:1446 and TypeCollector.cs:1341-1345 show the filter and location selection, and facts.json repro.claude.C1 reproduces the failure on head while passing on base."
+        }
+      ],
+      "unsupported": [
+        {
+          "reviewer": "claude",
+          "claim": "Roslyn permits analyzers to report Location.None and metadata locations, and the generator still emits App.R.g.cs and a formatter for Lib.Item`1 causing a runtime failure.",
+          "why": "TypeCollector.cs:1442 confirms the doc comment text, but no Roslyn specification/test or generated-output inspection is included in the cited evidence to verify Roslyn's rules or the exact emitted code."
+        }
+      ],
+      "evidence_that_would_settle": [
+        "An automated test in MessagePack.SourceGenerator.Tests matching repro.claude.C1 (metadata generic class Lib.Item<T> with an in-compilation type Foo lacking [MessagePackObject]) asserting that MsgPack003 is reported at Foo's source location or Location.None rather than dropped.",
+        "Confirmation of whether Roslyn analyzer rules in this repo permit reporting MsgPack003 at formattedType.Locations[0] (when in source) or Location.None when callerSymbol is from metadata."
+      ],
+      "route_to": "MessagePack.SourceGenerator area owner",
+      "note": "The location-filtering behavior and base-vs-head behavioral difference are supported by TypeCollector.cs:1341,1446 and facts.json repro.claude.C1."
+    }
+  ]
+}

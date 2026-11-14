@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/MessagePackGenerator.cs b/src/MessagePack.SourceGenerator/MessagePackGenerator.cs
+index 4246a4e4..758d2632 100644
+--- a/src/MessagePack.SourceGenerator/MessagePackGenerator.cs
++++ b/src/MessagePack.SourceGenerator/MessagePackGenerator.cs
+@@ -69,7 +69,7 @@ public partial class MessagePackGenerator : IIncrementalGenerator
+ 
+                 foreach (GeneratedFormatterRequest request in s.Left.Left.Right)
+                 {
+-                    if (GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct) is FullModel generatedModel)
++                    if (!(GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct) is FullModel generatedModel))
+                     {
+                         modelPerType.Add(generatedModel);
+                     }

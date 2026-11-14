@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..a5b2e44e 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -197,7 +197,7 @@ internal static class GeneratedFormatterCollector
+                 return null;
+             }
+ 
+-            if (!claimedKeys.Add(key))
++            if (!(!claimedKeys.Add(key)))
+             {
+                 reportDiagnostic?.Invoke(Diagnostic.Create(MsgPack00xMessagePackAnalyzer.KeysMustBeUnique, surrogateMember.Locations.FirstOrDefault() ?? location));
+                 return null;

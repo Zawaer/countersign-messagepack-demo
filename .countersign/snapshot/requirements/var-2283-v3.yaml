@@ -1,0 +1,26 @@
+# REUSED from requirements/2283.yaml (same clauses, same ids, unchanged text) for another fix of the same upstream issue
+# #2283, so every fix of it is judged against the same clauses (docs/MEASUREMENT.md, "Same issue, several fixes").
+# Still a placeholder derived from the issue, not a Tieto set.
+change: "var-2283-v3"
+branch: cs-var/2283-v3
+reused_from: requirements/2283.yaml
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2283
+official: false
+requirements:
+  - id: REQ-2283-F1
+    type: functional
+    text: "Building a project whose [MessagePackObject] type has a member of a closed generic value type defined in a referenced assembly must not crash the source generator (no CS8785) and must produce a generated resolver."
+  - id: REQ-2283-F2
+    type: functional
+    text: "The MsgPack00x analyzer must not throw (no AD0001) for the same input."
+  - id: REQ-2283-F3
+    type: functional
+    text: "Diagnostics about members of a type declared in a referenced assembly must not be reported at locations outside the compilation being analyzed."
+  - id: REQ-2283-N1
+    type: non-functional
+    checks: [tests.full_suite]
+    text: "Existing analyzer diagnostics for types declared in the current compilation keep working unchanged (no regressions in the existing test suite)."
+  - id: REQ-2283-N2
+    type: non-functional
+    checks: [tests.fail_without_fix]
+    text: "The fix is covered by automated tests that fail without it."

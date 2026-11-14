@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..de747701 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -96,7 +96,7 @@ internal static class GeneratedFormatterCollector
+             members = CreateSurrogateMembers(type, surrogate, referenceSymbols, reportDiagnostic, location, out isIntKey);
+         }
+ 
+-        if (members is null)
++        if (!(members is null))
+         {
+             return null;
+         }

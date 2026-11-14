@@ -6,6 +6,7 @@ Every number carries `simulated: true|false`:
 """
 
 from __future__ import annotations
+import os
 
 from copy import deepcopy
 
@@ -231,6 +232,54 @@ def _tokens_per_change(ws: Workspace) -> dict:
     return out
 
 
+NO_SIGNOFFS = "no sign-offs yet"
+
+
+def signoff_metrics(events: list[dict]) -> dict:
+    """What the owners did with the AI's verified findings and its routing, from `signoff` entries in the ledger.
+    Only the newest signoff per change counts (a re-sign replaces the owner's earlier judgement). Filled in when an owner
+    signs; never simulated. Without any signoff every value is None ("no sign-offs yet"), not 0%."""
+    latest: dict[str, dict] = {}
+    for e in events:
+        if e.get("type") == "signoff" and isinstance(e.get("payload"), dict):
+            latest[e["payload"].get("change")] = e
+    signs = list(latest.values())
+    sim = any(e["payload"].get("simulated") for e in signs)
+    out = {"signoffs": len(signs), "simulated": sim}
+    if not signs:
+        return {**out, "findings_rated": None, "findings_accepted_rate": None, "findings_rejected": None, "tier_overrides": None}
+    listed, per = [], {}
+    without = [e["payload"].get("change") for e in signs if "findings" not in e["payload"]]
+    for e in signs:
+        for f in e["payload"].get("findings") or []:
+            listed.append((e["payload"].get("change"), f))
+            s = per.setdefault(f.get("reviewer") or str(f.get("ref", "?")).split(":")[0],
+                               {"accepted": 0, "rejected": 0, "unsure": 0, "unrated": 0})
+            s[f.get("verdict") if f.get("verdict") in s else "unrated"] += 1
+    for s in per.values():
+        s["rated"] = s["accepted"] + s["rejected"] + s["unsure"]
+        s["accepted_rate"] = round(s["accepted"] / s["rated"], 2) if s["rated"] else None
+    rated = sum(s["rated"] for s in per.values())
+    matrix: dict[str, dict[str, int]] = {}
+    for e in signs:
+        pl = e["payload"]
+        row = matrix.setdefault(pl.get("tier", "?"), {})
+        row[pl.get("decision", "?")] = row.get(pl.get("decision", "?"), 0) + 1
+    accepted_routed = sorted(e["payload"]["change"] for e in signs
+                             if e["payload"].get("tier") in HUMAN_TIERS and e["payload"].get("decision") == "accept")
+    held_cleared = sorted(e["payload"]["change"] for e in signs
+                          if e["payload"].get("tier") not in HUMAN_TIERS and e["payload"].get("decision") != "accept")
+    return {**out,
+            "findings_rated": {"rated": rated, "of": len(listed), "unrated": len(listed) - rated,
+                               "signoffs_before_finding_verdicts": without},
+            "findings_accepted_rate": per,
+            "findings_rejected": [{"change": c, "ref": f.get("ref"), "severity": f.get("severity"), "reason": f.get("reason", "")}
+                                  for c, f in listed if f.get("verdict") == "rejected"],
+            "tier_overrides": {"by_tier": matrix, "accepted_when_routed_to_human": accepted_routed,
+                               "held_back_when_ai_cleared": held_cleared,
+                               "overrode": len(accepted_routed) + len(held_cleared), "of": len(signs)}}
+
+
 def replay(ws: Workspace) -> dict:
     mm = load(ws)["measurement"]
     rows, packs = [], {}
@@ -251,7 +300,7 @@ def replay(ws: Workspace) -> dict:
         full, guided = _minutes(p, mm)
         packs[change] = p
         rows.append({
-            "change": change, "mutant": is_mutant(change), "of": base_change(change) if is_mutant(change) else None,
+            "change": change, "mutant": is_mutant(change), "benchmark": change.startswith("var-"), "of": base_change(change) if is_mutant(change) else None,
             "mutation": p.get("mutation"), "tier": p["tier"], "score": p["risk"]["score"], "owner": p["owner"],
             "routed_to_human": p["tier"] in HUMAN_TIERS,
             "why": [f"{w['source']} {w['id']}" for w in p["why"]],
@@ -264,7 +313,7 @@ def replay(ws: Workspace) -> dict:
     for r in rows:
         if r["mutant"]:
             r["caught_by"] = _caught_by(packs[r["change"]], packs.get(r["of"]))
-    real = [r for r in rows if not r["mutant"]]
+    real = [r for r in rows if not r["mutant"] and not r.get("benchmark")]  # var-*: generated benchmark variants, not real changes
     mutants = [r for r in rows if r["mutant"]]
     caught = [r for r in mutants if r["routed_to_human"]]
     catalogue = _catalogue(ws)
@@ -343,6 +392,19 @@ def replay(ws: Workspace) -> dict:
         "spotcheck_agreement": metric(round(sum(e["payload"]["result"] == "agree" for e in spots) / len(spots), 2) if spots else None,
                                       any(e["payload"].get("simulated") for e in spots), "agreeing spot-checks / all spot-checks in the ledger"),
     }
+    so = signoff_metrics(events)
+    when = "filled in when the owner signs (`countersign sign --finding`); newest signoff per change; " + NO_SIGNOFFS + " until then. "
+    metrics["signoffs"] = metric(so["signoffs"], so["simulated"], "changes with a signoff in the ledger")
+    metrics["findings_rated"] = metric(so["findings_rated"], so["simulated"],
+                                       when + "verified findings the owner rated accepted/rejected/unsure, of all listed in signed packs")
+    metrics["findings_accepted_rate"] = metric(so["findings_accepted_rate"], so["simulated"],
+                                               when + "per reviewer: accepted / rated (unsure counts as rated, unrated does not); "
+                                                      "AI findings the owner judged real")
+    metrics["findings_rejected"] = metric(so["findings_rejected"], so["simulated"],
+                                          when + "verified findings the owner judged false positives, with the owner's reason")
+    metrics["tier_overrides"] = metric(so["tier_overrides"], so["simulated"],
+                                       when + "decision by tier; overrode = accepted a change routed to a human (ask), "
+                                              "or rejected / requested changes on one the AI cleared (notify/silent)")
     by_sig = {k: [x["change"] for x in seeded if x["attributed_to"] == k] for k in (*SIGNAL_ORDER, "none", "missed")}
     metrics["catch_by_signal"] = metric(
         {"of": len(seeded), **{k: len(v) for k, v in by_sig.items()}, "detail": {k: v for k, v in by_sig.items() if v}},
@@ -372,7 +434,7 @@ def replay(ws: Workspace) -> dict:
                                                        "saved_min": round(r["full_read_min"] - r["guided_min"], 1)} for r in real}, True,
                                         "reading model; negative = the pack costs more than reading the diff (small changes)")
     metrics["model_tokens_per_change"] = metric(_tokens_per_change(ws), False, "measurement/costs.yaml; estimates where the row says so")
-    out = {"inputs": str(ws.inputs), "changes": rows, "skipped": skipped, "mutants": mt, "seeded_reviewed": seeded, "metrics": metrics}
+    out = {"inputs": (os.path.relpath(ws.inputs, ws.root) if str(ws.inputs).startswith(str(ws.root)) else str(ws.inputs)), "changes": rows, "skipped": skipped, "mutants": mt, "seeded_reviewed": seeded, "metrics": metrics}
     hist = ws.root / "measurement" / "history" / "results.json"
     if hist.exists():
         h = read_json(hist)
@@ -434,10 +496,27 @@ def to_markdown(r: dict) -> str:
         if k == "injection_changed_verdicts":
             v = "; ".join(f"{c}: " + ", ".join(f"{n} {len(x['changed'])} changed ({x['toward_met']} toward met)" for n, x in i["reviewers"].items())
                           for c, i in v.items())
+        if k in ("findings_rated", "findings_accepted_rate", "findings_rejected", "tier_overrides"):
+            v = _signoff_text(k, v)
         if k == "findings_per_reviewer":
             v = "; ".join(f"{n}: {s['verified']} verified, {s['rejected']} rejected, {s['refusals']} refusals" for n, s in v.items())
         out.append(f"| {k} | {v} | {m['simulated']} | {m['how']} |")
     return "\n".join(out) + "\n"
+
+
+def _signoff_text(k: str, v) -> str:
+    if v is None:
+        return NO_SIGNOFFS
+    if k == "findings_rated":
+        return f"{v['rated']} of {v['of']} rated ({v['unrated']} unrated)"
+    if k == "findings_accepted_rate":
+        return "; ".join(f"{n}: {s['accepted']} of {s['rated']} accepted" + (f" ({s['accepted_rate']:.0%})" if s["rated"] else "")
+                         + f", {s['rejected']} rejected, {s['unsure']} unsure" for n, s in v.items()) or "no findings in the signed packs"
+    if k == "findings_rejected":
+        return "; ".join(f"{x['change']} {x['ref']}" + (f" ({x['reason']})" if x["reason"] else "") for x in v) or "none"
+    return (f"{v['overrode']} of {v['of']} (accepted when routed to a human: {', '.join(v['accepted_when_routed_to_human']) or 'none'}; "
+            f"held back when AI-cleared: {', '.join(v['held_back_when_ai_cleared']) or 'none'}); by tier: "
+            + "; ".join(f"{t}: " + ", ".join(f"{d} {n}" for d, n in row.items()) for t, row in v["by_tier"].items()))
 
 
 # --- docs/MEASUREMENT.md: the numbers block is generated, so the page has one source of truth -----------------
@@ -480,7 +559,14 @@ def render_numbers(ws: Workspace, result: dict) -> str:
         f"{n}: {s['verified']} / {s['rejected']}" for n, s in per.items()) + " | `measurement/results.json` |")
     L.append("| Blocker/major findings: raised and verified, confirmed by another reviewer, others' verified ones it did not raise | " + "; ".join(
         f"{n}: {s['major_raised_verified']}, {s['confirmed_by_another']}, {s['missed_others_verified_major']}" for n, s in cross.items()) + " | same |")
-    L.append(f"| Real changes routed to a human | {met['share_routed_to_humans']['value']:.0%} of {len([r for r in result['changes'] if not r['mutant']])} | same |")
+    if "findings_accepted_rate" in met:
+        L.append("| Owner's verdict on the AI's verified findings: accepted (real) / rated, per reviewer | "
+                 + _signoff_text("findings_accepted_rate", met["findings_accepted_rate"]["value"])
+                 + (f"; rated {_signoff_text('findings_rated', met['findings_rated']['value'])}; rejected as false positives: "
+                    f"{_signoff_text('findings_rejected', met['findings_rejected']['value'])}" if met["findings_rated"]["value"] else "")
+                 + " (filled in when the owner signs) | `ledger/ledger.jsonl` signoffs |")
+        L.append("| Owner overrode the routing | " + _signoff_text("tier_overrides", met["tier_overrides"]["value"]) + " | same |")
+    L.append(f"| Real changes routed to a human | {met['share_routed_to_humans']['value']:.0%} of {len([r for r in result['changes'] if not r['mutant'] and not r.get('benchmark')])} | same |")
     tok = met["model_tokens_per_change"]["value"]
     if tok:
         L.append(f"| Model tokens per change (estimates, see docs/COSTS.md) | " + ", ".join(f"{c}: {t:,}" for c, t in sorted(tok.items())) + " | `measurement/costs.yaml` |")
