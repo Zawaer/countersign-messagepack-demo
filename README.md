@@ -19,7 +19,7 @@ MessagePack has a compact binary size and a full set of general purpose expressi
 - [Installation](#installation)
     - [NuGet packages](#nuget-packages)
     - [Unity](#unity)
-    - [Migration notes from v1.x](#migration-notes-from-v1x)
+    - [Migration notes from v1.x](#migration-notes-from-prior-versions)
 - [Quick Start](#quick-start)
 - [Analyzer](#analyzer)
 - [Built-in supported types](#built-in-supported-types)
