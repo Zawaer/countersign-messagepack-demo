@@ -8,13 +8,18 @@
     nemotron           https://integrate.api.nvidia.com/v1                         NVIDIA_API_KEY   nvidia/nemotron-3.5-super-vl-120b-a12b
     nemotron-selfhost  $COUNTERSIGN_SELFHOST_URL (e.g. http://127.0.0.1:8000/v1)   none             nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16
     gemini             https://generativelanguage.googleapis.com/v1beta/openai/    GEMINI_API_KEY   gemini-4-hydrogen (COUNTERSIGN_GEMINI_MODEL)
+    gemma-selfhost     $COUNTERSIGN_SELFHOST_URL (adjudicator, our own GPU)          none             google/gemma-4-31B-it-qat-w4a16-ct
 
 COUNTERSIGN_<NAME>_BASE_URL / COUNTERSIGN_<NAME>_MODEL override a preset (NAME upper-cased, '-' as '_').
 `nemotron-selfhost` is Nemotron 3.5 Lightning 30B-A3B (open weights, BF16), the smaller sibling of the hosted 120B
 Super, on a vLLM server we run (scripts/selfhost/, one A100 80GB). Same prompt; NOT the same model. It fills the
 registry's `nemotron` slot (the self-hostable one), so a confidential change may use it; because its model id is not
 the version the mandate trusts, trust.release_gate holds every area at `ask` until it passes the seeded set. It writes
-to reviews-selfhost/ unless --out says otherwise, and logs GPU wall-clock time (not tokens) as its cost. The prompt is a versioned file (prompts/review-v1.md); the runner builds the context itself and
+to reviews-selfhost/ unless --out says otherwise, and logs GPU wall-clock time (not tokens) as its cost.
+`gemma-selfhost` is the adjudicator's open-weights counterpart: Gemma 4 31B (W4A16) on the same kind of server, in the
+mandate's adjudicator slot (`gemini`); `countersign adjudicate <c> --adjudicator gemma-selfhost` writes
+reviews-selfhost/<c>/adjudication.gemma.json. A confidential change still refuses it until the mandate lists a
+self-hostable adjudicator: the registry, not the endpoint, says who may read the code. The prompt is a versioned file (prompts/review-v1.md); the runner builds the context itself and
 stamps reviewer/model/vendor/prompt_version/reviewed_at, so none of that is ever taken from the model.
 API keys are read from the environment only and are never written to files, logs or error messages.
 """
@@ -64,6 +69,15 @@ PRESETS: dict[str, dict] = {
                           "temperature": 0.6, "top_p": 0.95, "max_tokens": 32768,
                           "thinking": {"chat_template_kwargs": {"enable_thinking": True}},
                           "no_thinking": {"chat_template_kwargs": {"enable_thinking": False}}},
+    # Gemma 4 31B (open weights, W4A16 compressed-tensors: runs on an A100) on our vLLM: the self-hosted adjudicator.
+    # It sits in the mandate's adjudicator slot (gemini) the way nemotron-selfhost sits in nemotron's. Sampling as
+    # Gemma's model card recommends (temperature 1.0, top_p 0.95); reasoning on for rulings, off for the repair turn.
+    "gemma-selfhost": {"base_url": None, "base_url_env": "COUNTERSIGN_SELFHOST_URL", "key_env": None,
+                       "model": "google/gemma-4-31B-it-qat-w4a16-ct", "vendor": "Google", "provider": "verda",
+                       "registry": "gemini", "self_hosted": True, "out_dir": "reviews-selfhost", "file_stem": "gemma",
+                       "temperature": 1.0, "top_p": 0.95, "max_tokens": 16384,
+                       "thinking": {"chat_template_kwargs": {"enable_thinking": True}},
+                       "no_thinking": {"chat_template_kwargs": {"enable_thinking": False}}},
     "gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", "key_env": "GEMINI_API_KEY",
                "model": "gemini-4-hydrogen", "model_env": "COUNTERSIGN_GEMINI_MODEL", "vendor": "Google", "provider": "google",
                "temperature": None, "top_p": None, "max_tokens": 16384,
@@ -863,28 +877,33 @@ def run_adjudication(ws: Workspace, change: str, repo: str, adjudicator: str | N
     if not disputes:
         return None
     full = _disputes_with_sides(ws, change)
-    if not cfg.api_key:
+    if not cfg.api_key and PRESETS[name].get("key_env"):
         raise SystemExit(f"no API key for {name}: set {PRESETS[name]['key_env']}")
+    if cfg.max_model_len:  # a self-hosted window: keep prompt + answer inside it (adjudication contexts are small)
+        cfg.max_tokens = min(cfg.max_tokens or 16384, selfhost_fit(cfg.max_model_len)[1])
+    out_dir = _out_dir(name, None)  # gemma-selfhost: reviews-selfhost/, so the hosted adjudication stays as it is
     system = (ws.root / "prompts" / f"{ADJUDICATE_PROMPT}.md").read_text(encoding="utf-8")
     user = build_adjudication_context(ws, change, p, full, repo)
     ids = [d["id"] for d in full]
     log: list[ChatResult] = []
     started = _stamp(when)
-    stem = f"adjudication.{name}"
+    stem = f"adjudication.{PRESETS[name].get('file_stem', name)}"
     try:
         parsed, repaired = ask_json(ChatClient(cfg, post, sleep), system, user, lambda r: adjudication_problems(r, ids), log)
     finally:
-        _save_raw(ws.inputs / "reviews" / change, stem, cfg, system, user, log, {"prompt_version": ADJUDICATE_PROMPT, "started": started})
+        _save_raw(ws.inputs / out_dir / change, stem, cfg, system, user, log, {"prompt_version": ADJUDICATE_PROMPT, "started": started,
+                  **({"preset": cfg.name, "endpoint_host": cfg.endpoint_host, "self_hosted": True} if cfg.self_hosted else {})})
         _log_costs(ws, cfg, change, f"adjudicate {change} ({name}, {ADJUDICATE_PROMPT})", log)
     keep = ("dispute", "supported", "unsupported", "evidence_that_would_settle", "route_to", "note")
     out = {"reviewer": name, "model": cfg.model, "vendor": cfg.vendor, "prompt_version": ADJUDICATE_PROMPT, "reviewed_at": started,
            "role": "adjudicator: advisory; can add reasons and route to a human, never clears",
            "disputes_given": ids,
            "runner": {"tool": "countersign adjudicate", "endpoint": cfg.base_url, "calls": len(log), "json_repaired": repaired,
-                      "raw": f"reviews/{change}/raw/{stem}.response.json"},
+                      "raw": f"{out_dir}/{change}/raw/{stem}.response.json",
+                      **(_runner_extra(cfg, confidentiality(ws, change), log) if cfg.self_hosted else {})},
            # only the fields the brief asks for: anything else the model adds (e.g. "verdict": "met") is dropped
            "rulings": [{k: r[k] for k in keep if k in r} for r in parsed["rulings"]]}
-    path = ws.inputs / "reviews" / change / f"{stem}.json"
+    path = ws.inputs / out_dir / change / f"{stem}.json"
     write_json(path, out)
     return path
 
