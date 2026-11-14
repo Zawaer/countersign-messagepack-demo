@@ -53,6 +53,7 @@ def cmd_sign(a) -> int:
     print(pack_mod.card(p) + "\n")
     if a.signer != p["owner"]:
         raise SystemExit(f"{a.signer} is not the owner of this change; the mandate names {p['owner']}")
+    rated = pack_mod.rate_findings(p, a.finding)  # before any prompt, so a typo in a flag costs nothing
     decision = a.decision or input(f"{a.signer}, type your decision {p['signoff']['allowed_decisions']}: ").strip()
     if decision not in p["signoff"]["allowed_decisions"]:
         raise SystemExit(f"decision {decision!r} not allowed for tier {p['tier']}: {p['signoff']['allowed_decisions']}")
@@ -60,10 +61,13 @@ def cmd_sign(a) -> int:
     payload = {"change": p["change"], "pack_path": str(path.relative_to(ws.root)), "pack_sha256": sha256_hex(canonical(p)),
                "decision": decision, "note": note, "tier": p["tier"], "ai_cleared": p["tier"] not in HUMAN_TIERS,
                "areas": [x["name"] for x in p["areas"]], "mandate_sha256": p["mandate"]["sha256"],
-               "statement": p["signoff"]["statement"]}
+               "statement": p["signoff"]["statement"], "findings": rated, "simulated": bool(p.get("simulated"))}
     e = ledger.append(ws, "signoff", payload, a.signer)
     write_json(path.parent / "signoff.json", e)
     print(f"signed: ledger #{e['seq']} {decision} by {a.signer}, hash {e['hash'][:16]}")
+    if rated:
+        counts = {v: sum(r["verdict"] == v for r in rated) for v in (*pack_mod.FINDING_VERDICTS, "unrated")}
+        print("findings: " + ", ".join(f"{n} {v}" for v, n in counts.items() if n))
     return 0
 
 
@@ -85,8 +89,10 @@ def cmd_verify_ledger(a) -> int:
 def cmd_trust(a) -> int:
     ws = _ws(a)
     m = mandate_mod.load(ws)
-    entries = ledger.read(ws)
-    state = trust.derive(m, entries)
+    state, problems = trust.verified(ws, m)
+    entries = [] if problems else ledger.read(ws)
+    if problems:
+        print(f"LEDGER INVALID ({len(problems)} problems): no trust event is used, every area is at ask (countersign verify-ledger)")
     print("trust stages (mandate v" + m.version + "): climb one stage when its row holds; drop one stage on an escape on an AI-cleared change,")
     print("a disagreeing spot-check or a missed canary; never above the area's mandate cap")
     print(f"  {'stage':<7} {'agreeing in a row':>17} {'agreement':>10} {'over last':>9} {'no escape in last':>17}")
@@ -100,6 +106,8 @@ def cmd_trust(a) -> int:
     print("released reviewer versions (a review by any other version holds every area at ask):")
     for (n, model, pv), why in earned.items():
         print(f"  {n:<9} {model} / {pv}: {why}")
+    for line in trust.ignored_canaries(m, entries):
+        print(f"  ignored: {line}")
     print()
     print(f"{'area':<26} {'owner':<6} {'mandate':<7} {'cap now':<7} {'next':<7} {'progress':<9} reason")
     for area in m.areas:
@@ -154,8 +162,13 @@ def cmd_canary(a) -> int:
         versions[name] = {"name": name, "model": model or rest, "prompt_version": pv if model else None}
     if a.caught > a.seeded:
         raise SystemExit("caught cannot exceed seeded")
+    # The seeded defects the run covered (trust.release_gate.seeded_set by default): only a run that covers the whole
+    # set can release a reviewer version (red team L2).
+    defects = a.defect or trust.seeded_set(m)
+    if len(defects) != a.seeded:
+        raise SystemExit(f"--seeded {a.seeded}, but the run covers {len(defects)} defects (list them with --defect)")
     areas = a.area or [x.name for x in m.areas]
-    e = ledger.append(ws, "canary", {"areas": areas, "seeded": a.seeded, "caught": a.caught, "missed": a.missed or [],
+    e = ledger.append(ws, "canary", {"areas": areas, "seeded": a.seeded, "caught": a.caught, "missed": a.missed or [], "defects": defects,
                                      "reviewers": list(versions.values()), "note": a.note, "simulated": a.simulated}, a.signer)
     print(f"ledger #{e['seq']}: canary run caught {a.caught}/{a.seeded} seeded defects (areas: {', '.join(areas)})")
     return cmd_trust(a)
@@ -187,15 +200,18 @@ def cmd_review_llm(a) -> int:
     status = 0
     for change in a.changes:
         try:
-            out = (llm.review_from_raw(ws, change, a.reviewer, a.repo, budget=a.context_chars, blind=a.blind) if a.from_raw
-                   else llm.run_review(ws, change, a.reviewer, a.repo, budget=a.context_chars, blind=a.blind))
+            kw = {"budget": a.context_chars, "blind": a.blind, "confidential": a.confidential, "out_dir": a.out}
+            out = (llm.review_from_raw(ws, change, a.reviewer, a.repo, **kw) if a.from_raw
+                   else llm.run_review(ws, change, a.reviewer, a.repo, **kw))
         except llm.LLMError as e:
             print(f"error: {change}: {e}", file=sys.stderr)
             status = 1
             continue
         r = read_json(out)
         print(f"wrote {out.relative_to(ws.inputs)} ({r['model']}): " + ", ".join(f"{v['req']} {v['verdict']}" for v in r["requirement_verdicts"])
-              + f"; {len(r['findings'])} findings, {len(r['refusals'])} refusals; tokens {r['runner']['usage']}")
+              + f"; {len(r['findings'])} findings, {len(r['refusals'])} refusals; tokens {r['runner']['usage']}"
+              + (f"; endpoint {r['runner']['endpoint_host']} (self-hosted: {str(r['runner']['self_hosted']).lower()})"
+                 if "endpoint_host" in r["runner"] else ""))
     return status
 
 
@@ -270,6 +286,9 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--as", dest="signer", required=True)
     sp.add_argument("--decision", choices=["accept", "reject", "request-changes"])
     sp.add_argument("--note")
+    sp.add_argument("--finding", action="append", metavar="REVIEWER:ID=VERDICT[:REASON]",
+                    help="your verdict on one verified finding (repeatable): accepted (real), rejected (false positive) or unsure; "
+                         "findings without a flag are recorded as unrated")
     add("verify-ledger", cmd_verify_ledger, "re-check the hash chain and every signature")
     add("trust", cmd_trust, "the mandate's trust-stage table and each area's current stage, from the ledger")
     sp = add("spotcheck", cmd_spotcheck, "a human re-reviews an AI-cleared change")
@@ -290,6 +309,7 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--seeded", type=int, required=True)
     sp.add_argument("--caught", type=int, required=True)
     sp.add_argument("--missed", action="append", help="seeded defect the panel missed (repeatable)")
+    sp.add_argument("--defect", action="append", help="seeded defect id the run covered (repeatable; default: the mandate's seeded set)")
     sp.add_argument("--area", action="append", help="area the canaries were drawn from (repeatable; default: every area)")
     sp.add_argument("--reviewer", action="append", help="name=model@prompt_version the run used (default: the mandate registry)")
     sp.add_argument("--note", default="")
@@ -306,6 +326,11 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("--from-raw", action="store_true", help="re-parse the saved raw response instead of calling the API")
     sp.add_argument("--blind", action=argparse.BooleanOptionalAction, default=True,
                     help="seeded changes (<n>-mutK, <n>-inject): show the base change's id and no seeding record (default: on)")
+    sp.add_argument("--confidential", action="store_true",
+                    help="treat the change as confidential even if the mandate does not: only a self-hostable reviewer on its "
+                         "own server may read it (vendor-hosted endpoints are refused before anything is sent)")
+    sp.add_argument("--out", default=None, metavar="FOLDER",
+                    help="folder under the workspace for the review (default: reviews; nemotron-selfhost: reviews-selfhost)")
     sp = add("adjudicate", cmd_adjudicate, "only if reviewers disagree: the adjudicator's rulings (advisory; never clears)")
     sp.add_argument("changes", nargs="+")
     sp.add_argument("--adjudicator", default=None, help="default: the mandate's adjudicator")

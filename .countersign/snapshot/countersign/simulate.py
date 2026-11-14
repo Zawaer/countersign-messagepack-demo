@@ -74,7 +74,11 @@ def run_once(cfg: dict, m, spot_rate: float, mode: str, rng: random.Random, cana
     def ev(type_, area, **payload):
         nonlocal seq
         seq += 1
-        events.append({"seq": seq, "type": type_, "signer": "sim", "payload": {"areas": [area], "simulated": True, **payload}})
+        # each simulated event stands for a distinct change, signed by the area's owner (trust counts a spot-check
+        # only from the owner, once per pack)
+        owner = next((a.owner for a in m.areas if a.name == area), "sim")
+        events.append({"seq": seq, "type": type_, "signer": owner,
+                       "payload": {"areas": [area], "simulated": True, "pack_sha256": f"sim-{seq}", **payload}})
 
     if mode == "countersign":
         for a in cfg["areas"]:  # a fresh area has no track record: it starts on probation

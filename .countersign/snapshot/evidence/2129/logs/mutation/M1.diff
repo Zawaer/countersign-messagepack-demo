@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..5ed6dc7f 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -44,7 +44,7 @@ internal static class GeneratedFormatterCollector
+         Location location = formatter.Locations.FirstOrDefault() ?? Location.None;
+         string formatterName = formatter.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+ 
+-        if (!IsPartial(formatter, cancellationToken))
++        if (!(!IsPartial(formatter, cancellationToken)))
+         {
+             reportDiagnostic?.Invoke(Diagnostic.Create(MsgPack00xMessagePackAnalyzer.GeneratedFormatterMustBePartial, location, formatterName));
+             return null;

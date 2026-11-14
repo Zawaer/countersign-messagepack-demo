@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..35bfce39 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -161,7 +161,7 @@ internal static class GeneratedFormatterCollector
+         foreach (ISymbol surrogateMember in GetInstanceMembers(surrogate))
+         {
+             ImmutableArray<AttributeData> attributes = surrogateMember.GetAttributes();
+-            if (attributes.Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, referenceSymbols.IgnoreAttribute)))
++            if (!(attributes.Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, referenceSymbols.IgnoreAttribute))))
+             {
+                 continue;
+             }

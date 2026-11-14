@@ -1,0 +1,13 @@
+diff --git a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+index 1d95afc5..6961e6a0 100644
+--- a/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
++++ b/src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs
+@@ -259,7 +259,7 @@ internal static class GeneratedFormatterCollector
+                     continue;
+                 }
+ 
+-                if (member is IPropertySymbol { IsIndexer: true })
++                if (!(member is IPropertySymbol { IsIndexer: true }))
+                 {
+                     continue;
+                 }

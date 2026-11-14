@@ -1,0 +1,93 @@
+{
+  "reviewer": "gemini",
+  "model": "gemini-4-hydrogen",
+  "vendor": "Google",
+  "prompt_version": "adjudicate-v1",
+  "reviewed_at": "2026-11-14T11:28:30+02:00",
+  "role": "adjudicator: advisory; can add reasons and route to a human, never clears",
+  "disputes_given": [
+    "REQ-2234-N1",
+    "finding:nemotron:N1-crash-remains"
+  ],
+  "runner": {
+    "tool": "countersign adjudicate",
+    "endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+    "calls": 1,
+    "json_repaired": false,
+    "raw": "reviews/2234/raw/adjudication.gemini.response.json"
+  },
+  "rulings": [
+    {
+      "dispute": "REQ-2234-N1",
+      "supported": [
+        {
+          "reviewer": "claude",
+          "claim": "Duplicate-string-key analyzer crash is fixed and the 175-test source-generator suite passes",
+          "why": "Verified test SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure passes in tests.targeted and tests.full_suite passes (175/175)"
+        },
+        {
+          "reviewer": "claude",
+          "claim": "An unguarded cast to PropertyDeclarationSyntax remains at TypeCollector.cs:985 when both int and string keys are null",
+          "why": "Verified code quote at src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs:985 shows ((PropertyDeclarationSyntax)item.DeclaringSyntaxReferences[0].GetSyntax()).Identifier.GetLocation()"
+        },
+        {
+          "reviewer": "codex",
+          "claim": "Duplicate-string-key contracts no longer crash the analyzer and the existing source-generator suite passes",
+          "why": "Verified test SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure passes in tests.targeted and tests.full_suite passes (175/175)"
+        },
+        {
+          "reviewer": "nemotron",
+          "claim": "Duplicate-int-key analyzer crash is fixed on head and the pipeline repro repro.claude.C2 still fails on head and base while passing on control",
+          "why": "Verified test SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure passes in tests.targeted and fails in tests.fail_without_fix, and facts.json repro.claude.C2 confirms failed on head, failed on base, passed on control"
+        }
+      ],
+      "unsupported": [
+        {
+          "reviewer": "claude",
+          "claim": "Scratch-worktree probe triggers AD0001 InvalidCastException at head and generator probe shows no CS8785 for duplicate keys",
+          "why": "Neither scratch-worktree probe nor a generator-side duplicate-key test is in facts.json"
+        },
+        {
+          "reviewer": "codex",
+          "claim": "Invalid contracts generally satisfy REQ-2234-N1 without analyzer or generator crashes",
+          "why": "Cited evidence only covers DuplicateStringKeysAreReportedWithoutAnalyzerFailure and tests.full_suite; it does not cover null-key positional records (repro.claude.C2 fails on head) or a generator-side invalid-contract test"
+        },
+        {
+          "reviewer": "nemotron",
+          "claim": "Named test ReproClaude2234C2Tests.PositionalRecordWithNullKeyDoesNotCrashAnalyzerForSuppressedType fails with AD0001 InvalidCastException and passes on origin/ju26-issue-2283 due to a null-safe lookup",
+          "why": "The cited test name is engine_verified: false (not in facts.json), and the specific exception type and control-branch diff are not in the verified evidence"
+        }
+      ],
+      "evidence_that_would_settle": [
+        "Area-owner ruling on whether REQ-2234-N1 requires fixing the pre-existing TypeCollector.cs:985 cast for positional records with [property: Key(null)] in this change",
+        "A test in facts.json covering [MessagePackObject(SuppressSourceGeneration = true)] on a positional record with [property: Key(null)] asserting no AD0001 analyzer crash",
+        "A source-generator test in facts.json exercising invalid contracts (e.g. duplicate keys) in a SuppressSourceGeneration = true type and asserting no generator crash (CS8785)"
+      ],
+      "route_to": "MessagePack.SourceGenerator area owner",
+      "note": "Duplicate-key analyzer tests pass on head, while repro.claude.C2 fails on both head and base and TypeCollector.cs:985 retains an unguarded PropertyDeclarationSyntax cast."
+    },
+    {
+      "dispute": "finding:nemotron:N1-crash-remains",
+      "supported": [
+        {
+          "reviewer": "nemotron",
+          "claim": "Duplicate-int-key crash is fixed on head (passes on head, fails on base) and repro.claude.C2 fails on head, fails on base, and passes on control",
+          "why": "Verified facts.json entries for DuplicateIntKeysAreReportedWithoutAnalyzerFailure (tests.targeted pass, tests.fail_without_fix fail) and repro.claude.C2 (failed on head, failed on base, passed on control)"
+        }
+      ],
+      "unsupported": [
+        {
+          "reviewer": "nemotron",
+          "claim": "ReproClaude2234C2Tests.PositionalRecordWithNullKeyDoesNotCrashAnalyzerForSuppressedType fails with AD0001 InvalidCastException (ParameterSyntax to PropertyDeclarationSyntax) and origin/ju26-issue-2283 replaced the cast with a null-safe lookup",
+          "why": "The cited test is engine_verified: false (not in facts.json), and neither the exception details nor the control-branch code diff are in the verified evidence"
+        }
+      ],
+      "evidence_that_would_settle": [
+        "Area-owner decision on whether the pre-existing failure reproduced by repro.claude.C2 is in scope for this change or tracked separately",
+        "An automated test in facts.json for a suppressed-generation positional record with [property: Key(null)] asserting the expected diagnostic without AD0001"
+      ],
+      "route_to": "MessagePack.SourceGenerator area owner",
+      "note": "repro.claude.C2 confirms a pre-existing failure on head and base that passes on control, but the specific test name and exception details cited by nemotron are not verified in facts.json."
+    }
+  ]
+}

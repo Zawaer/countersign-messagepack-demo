@@ -19,6 +19,7 @@ usage: python3 -m countersign.craci attach --facts F --repo OWNER/REPO --run-id 
 
 from __future__ import annotations
 
+import base64
 import fnmatch
 import json
 import os
@@ -66,7 +67,7 @@ class Client:
             if status in (409, 503) and attempt < self.retries_409:  # 409: job not terminal yet (CRACI is finalizing it)
                 self.sleep(self.wait_409)
                 continue
-            raise ApiError(status, _problem(body))
+            raise ApiError(status, _problem(body) if _is_problem(body) else _not_the_api(status, body))
         raise ApiError(409, "job never became terminal")
 
     def job(self, repo: str, job_id: str) -> dict:
@@ -79,6 +80,24 @@ class Client:
         return json.loads(self._call("/v1preview1/network-trace", self.job(repo, job_id)))
 
 
+def _is_problem(body: bytes) -> bool:
+    """The CRACI API answers every error with an RFC 9457 problem document (application/problem+json)."""
+    try:
+        return isinstance(json.loads(body), dict)
+    except ValueError:
+        return False
+
+
+def _not_the_api(status: int, body: bytes) -> str:
+    """A non-problem error body did not come from the CRACI API. Inside a CRACI job a plain-text 403 ("Access denied")
+    is the job's egress proxy refusing the connection (CRACI docs, network troubleshooting: blocked connections)."""
+    text = body[:200].decode(errors="replace").strip()
+    if status == 403:
+        return (f"'{text}' (plain text, not the API's problem+json): the request never reached the CRACI API; the job's "
+                f"egress to {urllib.parse.urlsplit(API).hostname} was refused (see the craci job's Proxy violations in CRACI)")
+    return f"{text} (not a CRACI API response)"
+
+
 def _problem(body: bytes) -> str:
     try:
         p = json.loads(body)
@@ -87,7 +106,8 @@ def _problem(body: bytes) -> str:
         return body[:200].decode(errors="replace")
 
 
-def github_job_id(repo: str, run_id: str, prefix: str, token: str | None, get=urllib_get) -> str:
+def github_job(repo: str, run_id: str, prefix: str, token: str | None, get=urllib_get) -> dict:
+    """The first job of the run whose name starts with `prefix`, with its steps (name, started_at, completed_at)."""
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -96,8 +116,12 @@ def github_job_id(repo: str, run_id: str, prefix: str, token: str | None, get=ur
         raise ApiError(status, f"GitHub jobs lookup: {_problem(body)}")
     for j in json.loads(body).get("jobs", []):
         if j.get("name", "").startswith(prefix):
-            return str(j["id"])
+            return j
     raise ApiError(404, f"no job named {prefix}* in run {run_id}")
+
+
+def github_job_id(repo: str, run_id: str, prefix: str, token: str | None, get=urllib_get) -> str:
+    return str(github_job(repo, run_id, prefix, token, get)["id"])
 
 
 # ---------------------------------------------------------------- summaries
@@ -135,19 +159,61 @@ def _host(url: str) -> str:
     return urllib.parse.urlsplit(url).hostname or url
 
 
-def summarize_trace(trace: dict, allow: list[str] | None = None) -> dict:
-    """Per-host connections, bytes and matched rules; every denied observation is a proxy violation."""
+# The facts job step in which the change's own code is first fetched and built. A connection CRACI denied before
+# this step started came from the pinned toolchain setup (checkout, setup-dotnet), not from the change.
+BUILD_STEP = "Reproduce stage 1"
+
+
+OCSP_HASH_OIDS = (bytes.fromhex("06052b0e03021a"), bytes.fromhex("0609608648016503040201"))  # sha1, sha256
+
+
+def certificate_status_request(h: dict) -> bool:
+    """A plain-HTTP certificate revocation lookup: a CRL download (`GET http://.../*.crl`) or an RFC 6960 OCSP GET
+    (`GET http://host/<base64 DER OCSPRequest>`). NuGet makes these when it verifies package signatures. They are
+    recognised by the request itself, not by a host list. Denied, they carry nothing out: the request is the
+    certificate serial the build wants checked."""
+    u = urllib.parse.urlsplit(h.get("originUrl", ""))
+    if h.get("method") != "GET" or u.scheme != "http":
+        return False
+    if u.path.lower().endswith(".crl"):
+        return True
+    seg = urllib.parse.unquote(u.path.rsplit("/", 1)[-1])
+    try:
+        der = base64.b64decode(seg + "=" * (-len(seg) % 4), validate=True)
+    except ValueError:
+        return False
+    # An OCSPRequest is a DER SEQUENCE whose CertID names its hash algorithm: SHA-1 or SHA-256 (RFC 6960 4.1.1)
+    return len(der) > 20 and der[0] == 0x30 and any(oid in der[:40] for oid in OCSP_HASH_OIDS)
+
+
+def _build_started(steps: list[dict] | None) -> str | None:
+    s = next((x for x in steps or [] if str(x.get("name", "")).startswith(BUILD_STEP)), None)
+    return (s or {}).get("started_at")
+
+
+def _ts(t: str | None) -> str:
+    """RFC 3339 to a sortable `YYYY-MM-DDTHH:MM:SS` (CRACI gives nanoseconds, GitHub whole seconds with Z)."""
+    return (t or "")[:19]
+
+
+def summarize_trace(trace: dict, allow: list[str] | None = None, steps: list[dict] | None = None) -> dict:
+    """Per-host connections, bytes and matched rules. Every connection CRACI denied is listed, grouped by host; it
+    counts as a proxy violation of the change unless it is a certificate revocation lookup (recognised from the
+    request) or it happened before the change's build step started (pinned toolchain setup)."""
     hosts: dict = {}
-    denied, dns = [], 0
+    groups: dict = {}
+    dns = 0
+    build_from = _ts(_build_started(steps))
     for o in trace.get("observations", []):
         proto = o.get("protocol")
+        url = None
         if proto == "dns":
             dns += 1
             continue
         if proto == "http":
             h = o["http"]
             host, ok, rule, why = _host(h.get("originUrl", "")), not h.get("policyDenied"), h.get("matchedRule"), h.get("denyReason")
-            sent, recv = 0, int(h.get("bodySizeBytes") or 0)
+            sent, recv, url = 0, int(h.get("bodySizeBytes") or 0), h.get("originUrl")
         elif proto == "tcp":
             t = o["tcp"]
             host = t.get("tlsServerName") or (t.get("resolvedHosts") or [t.get("remoteIp", "?")])[0]
@@ -160,32 +226,58 @@ def summarize_trace(trace: dict, allow: list[str] | None = None) -> dict:
             sent, recv = int(s.get("bytesToUpstream") or 0), int(s.get("bytesFromUpstream") or 0)
         else:
             continue
+        if not ok:
+            if proto == "http" and certificate_status_request(o["http"]):
+                kind = "certificate_status"
+            elif build_from and _ts(o.get("observedAt")) < build_from:
+                kind = "toolchain_setup"
+            else:
+                kind = "violation"
+            g = groups.setdefault((kind, host, why), {"host": host, "protocol": proto, "reason": why, "count": 0,
+                                                      "first_at": o.get("observedAt"), "first_sequence": o.get("sequence"), "example": url})
+            g["count"] += 1
+            continue
         e = hosts.setdefault(host, {"host": host, "connections": 0, "bytes_sent": 0, "bytes_received": 0, "rules": set(), "denied": 0})
         e["connections"] += 1
         e["bytes_sent"] += sent
         e["bytes_received"] += recv
         if rule:
             e["rules"].add(rule)
-        if not ok:
-            e["denied"] += 1
-            denied.append({"sequence": o.get("sequence"), "at": o.get("observedAt"), "protocol": proto, "host": host, "reason": why})
-    rows = sorted(({**e, "rules": sorted(e["rules"])} for e in hosts.values()), key=lambda e: -e["bytes_received"])
+    by_kind = {k: sorted((g for (kk, _, _), g in groups.items() if kk == k), key=lambda g: (-g["count"], g["host"]))
+               for k in ("violation", "certificate_status", "toolchain_setup")}
+    for g in by_kind["violation"]:
+        hosts.setdefault(g["host"], {"host": g["host"], "connections": 0, "bytes_sent": 0, "bytes_received": 0, "rules": set(), "denied": 0})["denied"] += g["count"]
+    rows = sorted(({**e, "rules": sorted(e["rules"])} for e in hosts.values()), key=lambda e: (-e["bytes_received"], e["host"]))
     outside = []
     if allow:
         outside = sorted(h for h in hosts if not any(fnmatch.fnmatch(h.split(":")[0].lower(), p.lower()) for p in allow)
                          and not hosts[h]["denied"])
     job = trace.get("job", {})
+    n_viol, n_cert, n_setup = (sum(g["count"] for g in by_kind[k]) for k in ("violation", "certificate_status", "toolchain_setup"))
     out = {"schema_version": trace.get("schemaVersion"), "job": {k: job.get(k) for k in ("runId", "jobId", "runAttempt", "commitSha", "branch", "jobName", "status")},
-           "observations": len(trace.get("observations", [])), "dns_queries": dns, "hosts": rows,
-           "proxy_violations": denied, "allowed_hosts_outside_declared_tls_patterns": outside}
-    top = ", ".join(f"{r['host']} ({_mb(r['bytes_received'])})" for r in rows[:6])
-    if denied:
-        tried = sorted({d["host"] + (f" ({d['reason']})" if d["reason"] else "") for d in denied})
-        out |= {"status": "fail", "summary": f"{len(denied)} proxy violation(s): the build tried to reach {', '.join(tried)}"}
+           "observations": len(trace.get("observations", [])), "dns_queries": dns, "build_step_started": build_from or None,
+           "hosts": rows, "proxy_violations": by_kind["violation"],
+           "denied_certificate_status": by_kind["certificate_status"], "denied_during_toolchain_setup": by_kind["toolchain_setup"],
+           "allowed_hosts_outside_declared_tls_patterns": outside}
+    served = [r for r in rows if r["connections"]]
+    top = ", ".join(f"{r['host']} ({_mb(r['bytes_received'])})" for r in served[:6])
+    if n_viol:
+        tried = sorted({g["host"] + (f" ({g['reason']})" if g["reason"] else "") for g in by_kind["violation"]})
+        out |= {"status": "fail", "summary": f"{n_viol} proxy violation(s): the build tried to reach {', '.join(tried)}"}
     else:
-        out |= {"status": "pass", "summary": f"{sum(r['connections'] for r in rows)} connections to {len(rows)} hosts, 0 proxy violations: {top}"}
+        out |= {"status": "pass", "summary": f"{sum(r['connections'] for r in served)} connections to {len(served)} hosts, 0 proxy violations: {top}"}
+    also = []
+    if n_cert:
+        also.append(f"{n_cert} certificate revocation lookups (CRL/OCSP over plain HTTP: {', '.join(sorted({g['host'] for g in by_kind['certificate_status']}))}), "
+                    "so package-signature revocation was not checked online")
+    if n_setup:
+        also.append(f"{n_setup} request(s) during toolchain setup, before the change was built ({', '.join(sorted({g['host'] for g in by_kind['toolchain_setup']}))})")
+    if also:
+        out["summary"] += "; denied, not counted as the change's: " + "; ".join(also)
     if outside:
-        out["summary"] += f"; allowed by a preset rather than a listed host: {', '.join(outside)}"
+        rules = sorted({r for h in outside for r in hosts[h]["rules"]})
+        out["summary"] += (f"; {len(outside)} host(s) allowed by a preset or CRACI's own CI-service rule, not a listed TLS host"
+                           + (f" (rules: {', '.join(rules)})" if rules else f": {', '.join(outside)}"))
     return out
 
 
@@ -202,16 +294,19 @@ def attach(facts_path: Path, repo: str, run_id: str | None, job: str = "facts", 
     facts = json.loads(facts_path.read_text())
     out_dir = out_dir or facts_path.parent / "craci"
     token = env.get("CRACI_API_TOKEN", "").strip()
-    base = {"tool": "CRACI API v1preview1 (https://api.craci.com)", "source": {"repo": repo, "run_id": run_id, "job": job}}
+    run_url = f"{env.get('GITHUB_SERVER_URL', 'https://github.com')}/{repo}/actions/runs/{run_id}" if repo and run_id else None
+    base = {"tool": "CRACI API v1preview1 (https://api.craci.com)", "source": {"repo": repo, "run_id": run_id, "job": job},
+            "run_url": run_url}
     if not token:
         checks = [{"id": i, **base, "status": "skipped", "reason": NO_TOKEN, "summary": f"not fetched: {NO_TOKEN} (the job's record is in the CRACI app: View trace / SBOM)"}
                   for i in ("craci.sbom", "craci.network")]
     else:
         checks = []
         try:
-            job_id = env.get("CRACI_JOB_ID") or github_job_id(repo, run_id, job, env.get("GITHUB_TOKEN"), get=get)
+            gh_job = {"id": env["CRACI_JOB_ID"]} if env.get("CRACI_JOB_ID") else github_job(repo, run_id, job, env.get("GITHUB_TOKEN"), get=get)
+            job_id, steps = str(gh_job["id"]), gh_job.get("steps")
         except ApiError as e:
-            job_id, err = None, str(e)
+            job_id, steps, err = None, None, str(e)
         c = Client(token, get=get, sleep=sleep)
         src = {**base["source"], "job_id": job_id}
         ours = []
@@ -221,7 +316,7 @@ def attach(facts_path: Path, repo: str, run_id: str | None, job: str = "facts", 
                 ours.append(json.loads(f.read_text()))
         for cid, fetch, fname, summarize in (
                 ("craci.sbom", c.sbom, "sbom.cdx.json", lambda d: summarize_sbom(d, ours)),
-                ("craci.network", c.network_trace, "network-trace.json", lambda d: summarize_trace(d, _allow(facts)))):
+                ("craci.network", c.network_trace, "network-trace.json", lambda d: summarize_trace(d, _allow(facts), steps))):
             if job_id is None:
                 checks.append({"id": cid, **base, "source": src, "status": "error", "summary": f"could not find the GitHub job id: {err}"})
                 continue

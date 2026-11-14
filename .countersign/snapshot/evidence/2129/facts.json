@@ -730,6 +730,1558 @@
         "head_serial": "urn:uuid:358d58a0-a562-52e2-bae8-0d4a6f031220"
       },
       "scope": "all 31 *.csproj in the tree (src, tests, sandbox, benchmark), restored as one throwaway solution; the graph is NuGet's restore output (obj/**/project.assets.json)"
+    },
+    {
+      "id": "build.egress",
+      "tool": "CRACI network policy (cracicorp/setup@v1) + job log scan",
+      "policy": {
+        "default": "deny",
+        "presets": [
+          "github"
+        ],
+        "tls_server_name_patterns": [
+          "github.com",
+          "codeload.github.com",
+          "objects.githubusercontent.com",
+          "api.nuget.org",
+          "*.nuget.org",
+          "pkgs.dev.azure.com",
+          "*.vsblob.vsassets.io",
+          "builds.dotnet.microsoft.com",
+          "dotnetcli.azureedge.net",
+          "dotnetcli.blob.core.windows.net",
+          "*.dot.net",
+          "dot.net",
+          "download.visualstudio.microsoft.com"
+        ],
+        "tcp_host_patterns": [],
+        "cidrs": [],
+        "ports": [
+          443
+        ]
+      },
+      "policy_text": "default: deny\npresets: [github]\nconnections:\n  - tls:\n      serverNamePatterns: [github.com, codeload.github.com, objects.githubusercontent.com,\n                           api.nuget.org, \"*.nuget.org\", pkgs.dev.azure.com, \"*.vsblob.vsassets.io\",\n                           builds.dotnet.microsoft.com, dotnetcli.azureedge.net, dotnetcli.blob.core.windows.net,\n                           \"*.dot.net\", dot.net, download.visualstudio.microsoft.com]\n      ports: [443]\n",
+      "policy_sha256": "31fafb855e985c38a31b18cfa9140b83a5b9caa5539eadbdf7344e88b20d2fa1",
+      "provenance": {
+        "workflow": ".github/workflows/countersign.yml",
+        "job": "facts",
+        "workflow_commit": "9e708dbb849708b99fe45c3269b04f422e907d93",
+        "run": "https://github.com/Zawaer/countersign/actions/runs/43559092226",
+        "run_attempt": "1",
+        "runner_name": "craci-0-a22dca69",
+        "craci_job_ca": {
+          "path": "/usr/local/share/ca-certificates/craci.crt",
+          "sha256": "8a248612007c26021a6c4c3d0ff0308761cf500a5551c85ea146ab803a299123"
+        },
+        "craci_env": []
+      },
+      "logs_scanned": 29,
+      "blocked": [],
+      "blocked_hosts": [],
+      "nuget_feeds_on_head": {
+        "nuget.config:dotnet-tools": "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-tools/nuget/v3/index.json",
+        "nuget.config:nuget": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:nuget.org": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:repositoryPath": "./Packages"
+      },
+      "nuget_feeds_outside_policy": {},
+      "authoritative_record": "craci.network (CRACI network trace via the API; needs CRACI_API_TOKEN), or the job's View trace in the CRACI app",
+      "status": "pass",
+      "summary": "built on CRACI under a deny-by-default policy: only 13 TLS host patterns on ports 443 (github.com, codeload.github.com, objects.githubusercontent.com, api.nuget.org, *.nuget.org, pkgs.dev.azure.com, ...); presets ['github']; no blocked connection in 29 logs; every NuGet feed the head declares is inside the policy",
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43559092226"
+    },
+    {
+      "id": "tests.mutation",
+      "tool": "evidence/scripts/mutation.py + dotnet test (one mutant at a time, the targeted filter)",
+      "tool_version": "8.0.402",
+      "status": "fail",
+      "summary": "8 mutants of the changed source lines: 6 killed, 1 survived, 1 not judged; 6 of 7 mutated hunks have a killed mutant; surviving hunks: GeneratedFormatterCollector.cs:277-284; 47 hunks not mutated",
+      "rule": "killed = at least one new test (new: true in tests.fail_without_fix) fails on the mutant and passed on head; pass = every mutated hunk has a killed mutant",
+      "operators": [
+        "negate_condition",
+        "drop_statement",
+        "drop_guard",
+        "swap_logical",
+        "drop_guard_conjunct",
+        "return_default",
+        "remove_call"
+      ],
+      "max_mutants": 8,
+      "project": "tests/MessagePack.SourceGenerator.Tests",
+      "filter": [
+        "FullyQualifiedName~GeneratedMessagePackFormatterTests."
+      ],
+      "tests_judged": [
+        "GeneratedMessagePackFormatterTests.FormattedTypeMustNotBeAbstract",
+        "GeneratedMessagePackFormatterTests.FormatterMustBePartial",
+        "GeneratedMessagePackFormatterTests.FormatterMustImplementFormatterOfT",
+        "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+        "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+        "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+      ],
+      "not_covered": "ExecutionTests/MapModeExecutionTests (SDK 9) are not run against the mutants; files that are not C# are not mutated",
+      "hunks": [
+        {
+          "id": "H1",
+          "file": "src/MessagePack.Annotations/Attributes.cs",
+          "lines": [
+            143,
+            177
+          ],
+          "code_lines": [
+            165,
+            166,
+            176
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H2",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            32,
+            35
+          ],
+          "code_lines": [
+            32,
+            33,
+            34,
+            35
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H3",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            318,
+            325
+          ],
+          "code_lines": [
+            318,
+            319,
+            320,
+            321,
+            322,
+            323,
+            324,
+            325
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H4",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            327,
+            334
+          ],
+          "code_lines": [
+            327,
+            328,
+            329,
+            330,
+            331,
+            332,
+            333,
+            334
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H5",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            336,
+            343
+          ],
+          "code_lines": [
+            336,
+            337,
+            338,
+            339,
+            340,
+            341,
+            342,
+            343
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H6",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            345,
+            352
+          ],
+          "code_lines": [
+            345,
+            346,
+            347,
+            348,
+            349,
+            350,
+            351,
+            352
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H7",
+          "file": "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs",
+          "lines": [
+            381,
+            385
+          ],
+          "code_lines": [
+            381,
+            382,
+            383,
+            384,
+            385
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H8",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            4,
+            8
+          ],
+          "code_lines": [
+            4,
+            5,
+            6,
+            7,
+            8
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H9",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            10,
+            10
+          ],
+          "code_lines": [
+            10
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H10",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            12,
+            22
+          ],
+          "code_lines": [
+            17,
+            19,
+            20,
+            21,
+            22
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H11",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            24,
+            45
+          ],
+          "code_lines": [
+            35,
+            36,
+            37,
+            38,
+            39,
+            40,
+            41,
+            42,
+            44,
+            45
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H12",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            47,
+            51
+          ],
+          "code_lines": [
+            47,
+            49,
+            50
+          ],
+          "mutants": [
+            "M1"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H13",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            53,
+            61
+          ],
+          "code_lines": [
+            53,
+            54,
+            55,
+            56,
+            57,
+            59,
+            60
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (3 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H14",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            63,
+            74
+          ],
+          "code_lines": [
+            63,
+            64,
+            65,
+            66,
+            68,
+            69,
+            70,
+            71,
+            72,
+            73
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (2 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H15",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            76,
+            81
+          ],
+          "code_lines": [
+            76,
+            77,
+            79,
+            80
+          ],
+          "mutants": [
+            "M2"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H16",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            83,
+            85
+          ],
+          "code_lines": [
+            83,
+            84,
+            85
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (2 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H17",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            87,
+            97
+          ],
+          "code_lines": [
+            87,
+            88,
+            89,
+            91,
+            92,
+            94,
+            96
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (2 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H18",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            99,
+            102
+          ],
+          "code_lines": [
+            99,
+            101
+          ],
+          "mutants": [
+            "M3"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H19",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            104,
+            119
+          ],
+          "code_lines": [
+            104,
+            105,
+            106,
+            107,
+            108,
+            109,
+            110,
+            111,
+            112,
+            113,
+            114,
+            115,
+            117,
+            118
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H20",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            121,
+            126
+          ],
+          "code_lines": [
+            121,
+            123,
+            124
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H21",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            128,
+            138
+          ],
+          "code_lines": [
+            131,
+            133,
+            134,
+            135,
+            137
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H22",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            140,
+            141
+          ],
+          "code_lines": [
+            140
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H23",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            143,
+            159
+          ],
+          "code_lines": [
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            155,
+            156,
+            157,
+            158,
+            159
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H24",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            161,
+            167
+          ],
+          "code_lines": [
+            161,
+            163,
+            164,
+            166
+          ],
+          "mutants": [
+            "M4"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H25",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            169,
+            179
+          ],
+          "code_lines": [
+            169,
+            170,
+            171,
+            173,
+            174,
+            175,
+            176,
+            177,
+            178
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (2 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H26",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            181,
+            187
+          ],
+          "code_lines": [
+            181,
+            182,
+            183,
+            185,
+            186
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (3 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H27",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            189,
+            198
+          ],
+          "code_lines": [
+            189,
+            190,
+            192,
+            193,
+            194,
+            195,
+            196,
+            197
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (3 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H28",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            200,
+            204
+          ],
+          "code_lines": [
+            200,
+            202,
+            203
+          ],
+          "mutants": [
+            "M5"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H29",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            206,
+            209
+          ],
+          "code_lines": [
+            206,
+            207,
+            208
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H30",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            211,
+            213
+          ],
+          "code_lines": [
+            211,
+            212
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H31",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            215,
+            225
+          ],
+          "code_lines": [
+            215,
+            217,
+            218,
+            219,
+            220,
+            222,
+            223,
+            224
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H32",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            227,
+            244
+          ],
+          "code_lines": [
+            227,
+            228,
+            229,
+            230,
+            231,
+            232,
+            233,
+            234,
+            235,
+            236,
+            237,
+            238,
+            242
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H33",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            246,
+            260
+          ],
+          "code_lines": [
+            249,
+            251,
+            252,
+            253,
+            255,
+            257,
+            259
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (4 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H34",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            262,
+            265
+          ],
+          "code_lines": [
+            262,
+            264
+          ],
+          "mutants": [
+            "M6"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H35",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            267,
+            272
+          ],
+          "code_lines": [
+            267,
+            269
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (3 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H36",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            274,
+            275
+          ],
+          "code_lines": [
+            274
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H37",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            277,
+            284
+          ],
+          "code_lines": [
+            277,
+            279,
+            280,
+            281,
+            282,
+            283
+          ],
+          "mutants": [
+            "M7"
+          ],
+          "status": "survived"
+        },
+        {
+          "id": "H38",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            286,
+            291
+          ],
+          "code_lines": [
+            286,
+            288,
+            289,
+            290
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H39",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "lines": [
+            293,
+            300
+          ],
+          "code_lines": [
+            293,
+            295,
+            296,
+            297,
+            298
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H40",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+          "lines": [
+            4,
+            4
+          ],
+          "code_lines": [
+            4
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H41",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+          "lines": [
+            6,
+            6
+          ],
+          "code_lines": [
+            6
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H42",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterRequest.cs",
+          "lines": [
+            8,
+            13
+          ],
+          "code_lines": [
+            13
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H43",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs",
+          "lines": [
+            13,
+            17
+          ],
+          "code_lines": [
+            17
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H44",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs",
+          "lines": [
+            168,
+            168
+          ],
+          "code_lines": [
+            168
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H45",
+          "file": "src/MessagePack.SourceGenerator/GeneratorUtilities.cs",
+          "lines": [
+            38,
+            38
+          ],
+          "code_lines": [
+            38
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H46",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            29,
+            34
+          ],
+          "code_lines": [
+            29,
+            30,
+            31,
+            32,
+            33,
+            34
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H47",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            37,
+            37
+          ],
+          "code_lines": [
+            37
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H48",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            60,
+            60
+          ],
+          "code_lines": [
+            60
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H49",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            65,
+            65
+          ],
+          "code_lines": [
+            65
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        },
+        {
+          "id": "H50",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            70,
+            76
+          ],
+          "code_lines": [
+            70,
+            72,
+            74
+          ],
+          "mutants": [
+            "M8"
+          ],
+          "status": "not_mutated",
+          "why": "its mutants could not be judged (M8 not_viable)"
+        },
+        {
+          "id": "H51",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            115,
+            126
+          ],
+          "code_lines": [
+            117,
+            118,
+            119,
+            120,
+            122,
+            123,
+            125
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (3 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H52",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            128,
+            129
+          ],
+          "code_lines": [
+            128,
+            129
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H53",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "lines": [
+            131,
+            131
+          ],
+          "code_lines": [
+            131
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "left out by the budget (1 candidates; at most 8 mutants per change)"
+        },
+        {
+          "id": "H54",
+          "file": "src/MessagePack.SourceGenerator/Utils/Constants.cs",
+          "lines": [
+            17,
+            18
+          ],
+          "code_lines": [
+            17,
+            18
+          ],
+          "mutants": [],
+          "status": "not_mutated",
+          "why": "no operator applies to its lines"
+        }
+      ],
+      "surviving_hunks": [
+        "H37"
+      ],
+      "mutants": [
+        {
+          "id": "M1",
+          "hunk": "H12",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 47,
+          "operator": "negate_condition",
+          "before": "        if (!IsPartial(formatter, cancellationToken))",
+          "after": "        if (!(!IsPartial(formatter, cancellationToken)))",
+          "log": [
+            "evidence/2129/logs/mutation/M1.build.log",
+            "evidence/2129/logs/mutation/M1.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M1.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.FormattedTypeMustNotBeAbstract",
+            "GeneratedMessagePackFormatterTests.FormatterMustBePartial",
+            "GeneratedMessagePackFormatterTests.FormatterMustImplementFormatterOfT",
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M2",
+          "hunk": "H15",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 77,
+          "operator": "negate_condition",
+          "before": "        if (isClass && !type.InstanceConstructors.Any(c => c.Parameters.Length == 0 && compilation.IsSymbolAccessibleWithin(c, formatter)))",
+          "after": "        if (!(isClass && !type.InstanceConstructors.Any(c => c.Parameters.Length == 0 && compilation.IsSymbolAccessibleWithin(c, formatter))))",
+          "log": [
+            "evidence/2129/logs/mutation/M2.build.log",
+            "evidence/2129/logs/mutation/M2.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M2.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M3",
+          "hunk": "H18",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 99,
+          "operator": "negate_condition",
+          "before": "        if (members is null)",
+          "after": "        if (!(members is null))",
+          "log": [
+            "evidence/2129/logs/mutation/M3.build.log",
+            "evidence/2129/logs/mutation/M3.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M3.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M4",
+          "hunk": "H24",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 164,
+          "operator": "negate_condition",
+          "before": "            if (attributes.Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, referenceSymbols.IgnoreAttribute)))",
+          "after": "            if (!(attributes.Any(a => SymbolEqualityComparer.Default.Equals(a.AttributeClass, referenceSymbols.IgnoreAttribute))))",
+          "log": [
+            "evidence/2129/logs/mutation/M4.build.log",
+            "evidence/2129/logs/mutation/M4.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M4.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M5",
+          "hunk": "H28",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 200,
+          "operator": "negate_condition",
+          "before": "            if (!claimedKeys.Add(key))",
+          "after": "            if (!(!claimedKeys.Add(key)))",
+          "log": [
+            "evidence/2129/logs/mutation/M5.build.log",
+            "evidence/2129/logs/mutation/M5.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M5.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M6",
+          "hunk": "H34",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 262,
+          "operator": "negate_condition",
+          "before": "                if (member is IPropertySymbol { IsIndexer: true })",
+          "after": "                if (!(member is IPropertySymbol { IsIndexer: true }))",
+          "log": [
+            "evidence/2129/logs/mutation/M6.build.log",
+            "evidence/2129/logs/mutation/M6.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M6.diff",
+          "killed_by": [
+            "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+            "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 6
+        },
+        {
+          "id": "M7",
+          "hunk": "H37",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 280,
+          "operator": "swap_logical",
+          "before": "            && property.GetMethod is { DeclaredAccessibility: Accessibility.Public }",
+          "after": "            || property.GetMethod is { DeclaredAccessibility: Accessibility.Public }",
+          "log": [
+            "evidence/2129/logs/mutation/M7.build.log",
+            "evidence/2129/logs/mutation/M7.test.1.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M7.diff",
+          "killed_by": [],
+          "existing_tests_failed": [],
+          "outcome": "survived",
+          "tests_run": 6
+        },
+        {
+          "id": "M8",
+          "hunk": "H50",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "line": 72,
+          "operator": "negate_condition",
+          "before": "                    if (GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct) is FullModel generatedModel)",
+          "after": "                    if (!(GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct) is FullModel generatedModel))",
+          "log": [
+            "evidence/2129/logs/mutation/M8.build.log"
+          ],
+          "diff": "evidence/2129/logs/mutation/M8.diff",
+          "outcome": "not_viable",
+          "why": "the mutant does not build"
+        }
+      ],
+      "kills_by_test": [
+        {
+          "name": "GeneratedMessagePackFormatterTests.FormattedTypeMustNotBeAbstract",
+          "killed": [
+            "M1"
+          ]
+        },
+        {
+          "name": "GeneratedMessagePackFormatterTests.FormatterMustBePartial",
+          "killed": [
+            "M1"
+          ]
+        },
+        {
+          "name": "GeneratedMessagePackFormatterTests.FormatterMustImplementFormatterOfT",
+          "killed": [
+            "M1"
+          ]
+        },
+        {
+          "name": "GeneratedMessagePackFormatterTests.SurrogateKeysMustNotMixStringAndInt",
+          "killed": [
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "M5",
+            "M6"
+          ]
+        },
+        {
+          "name": "GeneratedMessagePackFormatterTests.SurrogateMemberMustHaveMatchingType",
+          "killed": [
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "M6"
+          ]
+        },
+        {
+          "name": "GeneratedMessagePackFormatterTests.SurrogateMemberMustMatchFormattedType",
+          "killed": [
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "M6"
+          ]
+        }
+      ],
+      "skipped": [
+        {
+          "file": "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+          "reason": "not C# (no operator for this file type)"
+        },
+        {
+          "file": "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt",
+          "reason": "not C# (no operator for this file type)"
+        }
+      ],
+      "log": "evidence/2129/logs/mutation/"
+    },
+    {
+      "id": "craci.sbom",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580812697",
+        "job": "facts",
+        "job_id": "132404967646"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580812697",
+      "raw": "evidence/2129/ci/craci/sbom.cdx.json",
+      "spec_version": "1.7",
+      "serial": "urn:uuid:4f7daf18-2594-45f1-ae1b-b0e1fe7b6ebc",
+      "components": 0,
+      "by_purl_type": {},
+      "completeness": null,
+      "nuget_seen_by_craci": 0,
+      "nuget_in_our_graph": 242,
+      "nuget_seen_by_craci_not_in_our_graph": [],
+      "other_components": [],
+      "status": "pass",
+      "summary": "CRACI's job SBOM: 0 components (none); 0 NuGet, all in our restore graph (242 NuGet packages). CRACI has no NuGet source type, so the facts job reaches NuGet through a TLS connection rule, which CRACI does not inspect for packages: the NuGet graph is recorded by deps.delta, CRACI records the connections (craci.network)"
+    },
+    {
+      "id": "craci.network",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580812697",
+        "job": "facts",
+        "job_id": "132404967646"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580812697",
+      "raw": "evidence/2129/ci/craci/network-trace.json.gz",
+      "schema_version": "1",
+      "job": {
+        "runId": "43580812697",
+        "jobId": "132404967646",
+        "runAttempt": 1,
+        "commitSha": "f2219f929d506fcf736f0c20d2c4afb3ae8e3fea",
+        "branch": "main",
+        "jobName": "facts (stage 1 deterministic checks for one change, .NET 8 + 9)",
+        "status": "SUCCESS"
+      },
+      "observations": 3602,
+      "dns_queries": 456,
+      "build_step_started": "2026-11-14T09:30:26",
+      "hosts": [
+        {
+          "host": "builds.dotnet.microsoft.com",
+          "connections": 17,
+          "bytes_sent": 13259,
+          "bytes_received": 468146870,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "api.nuget.org",
+          "connections": 83,
+          "bytes_sent": 293464,
+          "bytes_received": 283526103,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "github.com",
+          "connections": 2,
+          "bytes_sent": 7017,
+          "bytes_received": 19255683,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "codeload.github.com",
+          "connections": 3,
+          "bytes_sent": 4042,
+          "bytes_received": 4158460,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "pkgs.dev.azure.com",
+          "connections": 36,
+          "bytes_sent": 51483,
+          "bytes_received": 389920,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "ci.dot.net",
+          "connections": 8,
+          "bytes_sent": 10734,
+          "bytes_received": 43540,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "results-receiver.actions.githubusercontent.com",
+          "connections": 43,
+          "bytes_sent": 0,
+          "bytes_received": 10083,
+          "rules": [
+            "github-actions-cache-results-receiver.actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "launch.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 1616,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 51,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "broker.actions.githubusercontent.com",
+          "connections": 2,
+          "bytes_sent": 0,
+          "bytes_received": 4,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "productionresultssa4.blob.core.windows.net",
+          "connections": 17,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "recorded-http-api.github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run-actions-3-azure-eastus.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "token.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        }
+      ],
+      "proxy_violations": [],
+      "denied_certificate_status": [
+        {
+          "host": "ocsp.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 924,
+          "first_at": "2026-11-14T09:30:30.428753251Z",
+          "first_sequence": 274,
+          "example": "http://ocsp.digicert.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBTfIs%2BLjDtGwQ09XEB1Yeq%2BtX%2BBgQQU7NfjgtJxXWRM3y5nP%2Be6mK4cD08CEAc2N7ckVHzYR6z9KGYqXls%3D"
+        },
+        {
+          "host": "crl3.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 633,
+          "first_at": "2026-11-14T09:30:30.370232395Z",
+          "first_sequence": 257,
+          "example": "http://crl3.digicert.com/DigiCertTrustedG4RSA4096SHA256TimeStampingCA.crl"
+        },
+        {
+          "host": "crl4.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 291,
+          "first_at": "2026-11-14T09:30:30.500768208Z",
+          "first_sequence": 299,
+          "example": "http://crl4.digicert.com/DigiCertAssuredIDRootCA.crl"
+        },
+        {
+          "host": "s.symcb.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:30.467209098Z",
+          "first_sequence": 292,
+          "example": "http://s.symcb.com/universal-root.crl"
+        },
+        {
+          "host": "s.symcd.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:30.533581588Z",
+          "first_sequence": 306,
+          "example": "http://s.symcd.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQ%2FYHKj6JjF6UBieQioTYpFsuEriQQUtnf6aUhHn1MS1cLqBzJ2B9GXBxkCEHsFsdRJaFFE98mJ0pwZnRI%3D"
+        },
+        {
+          "host": "ts-crl.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:30.370228965Z",
+          "first_sequence": 256,
+          "example": "http://ts-crl.ws.symantec.com/sha256-tss-ca.crl"
+        },
+        {
+          "host": "ts-ocsp.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:30.592778024Z",
+          "first_sequence": 315,
+          "example": "http://ts-ocsp.ws.symantec.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQd11mpyHEqFCSocj4SCu93CBydHAQUr2PWyqNOhXLgp7xB8ymiOH%2BAdWICEHvU5a%2B6zAc%2FoQEjBCJBTRI%3D"
+        }
+      ],
+      "denied_during_toolchain_setup": [
+        {
+          "host": "aka.ms",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 3,
+          "first_at": "2026-11-14T09:29:59.943153039Z",
+          "first_sequence": 30,
+          "example": "https://aka.ms/dotnet/LTS/dotnet-runtime-linux-x64.tar.gz"
+        }
+      ],
+      "allowed_hosts_outside_declared_tls_patterns": [
+        "broker.actions.githubusercontent.com",
+        "launch.actions.githubusercontent.com",
+        "productionresultssa4.blob.core.windows.net",
+        "results-receiver.actions.githubusercontent.com",
+        "run-actions-3-azure-eastus.actions.githubusercontent.com",
+        "run.actions.githubusercontent.com",
+        "token.actions.githubusercontent.com"
+      ],
+      "status": "pass",
+      "summary": "215 connections to 13 hosts, 0 proxy violations: builds.dotnet.microsoft.com (468.1 MB), api.nuget.org (283.5 MB), github.com (19.3 MB), codeload.github.com (4.2 MB), pkgs.dev.azure.com (0.4 MB), ci.dot.net (44 kB); denied, not counted as the change's: 2928 certificate revocation lookups (CRL/OCSP over plain HTTP: crl3.digicert.com, crl4.digicert.com, ocsp.digicert.com, s.symcb.com, s.symcd.com, ts-crl.ws.symantec.com, ts-ocsp.ws.symantec.com), so package-signature revocation was not checked online; 3 request(s) during toolchain setup, before the change was built (aka.ms); 7 host(s) allowed by a preset or CRACI's own CI-service rule, not a listed TLS host (rules: github-actions-actions.githubusercontent.com, github-actions-cache-results-receiver.actions.githubusercontent.com, recorded-http-api.github.com)"
     }
   ],
   "not_run": [

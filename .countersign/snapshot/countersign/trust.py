@@ -14,10 +14,18 @@ The mandate's `trust.stages` table says what each stage needs; this module only 
   version that did neither, every area is held at `ask` until it does.
 
 Events: `spotcheck`, `escape` and `canary` ledger entries; each records the reviewer versions it was made with.
+Which events count (mandate v5, red team L1-L3):
+- Routing uses the ledger only after `ledger.verify` passes (hash chain, signatures); otherwise no event is used
+  and every area is at ask, with the reason (`verified`).
+- A canary releases a reviewer version only if it lists every id of `release_gate.seeded_set`, claims that many
+  seeded, and caught at least `min_catch_rate` of them.
+- A spot-check counts only if its signer owns the area, and once per pack (`pack_sha256`); others are ignored and
+  the area history says why.
 """
 
 from __future__ import annotations
 
+from . import ledger
 from .common import TIERS, strictest
 from .mandate import Mandate
 
@@ -52,16 +60,94 @@ def version_key(name: str, r: dict) -> tuple[str, str, str]:
     return (name, str(r.get("model")), str(r.get("prompt_version")))
 
 
+def seeded_set(m: Mandate) -> list[str]:
+    """The seeded-defect ids a canary must cover to release a reviewer version (trust.release_gate.seeded_set)."""
+    s = m["trust"].get("release_gate", {}).get("seeded_set") or []
+    return [str(x) for x in s] if isinstance(s, list) else []
+
+
+def canary_release(m: Mandate, p: dict) -> tuple[bool, str]:
+    """Does this canary payload pass the release gate? It must name every id of the mandate's seeded set (`defects`),
+    claim exactly that many seeded, and catch at least min_catch_rate of them (`missed` ids count against it)."""
+    gate = m["trust"].get("release_gate", {})
+    want = seeded_set(m)
+    if not want:
+        return False, "the mandate lists no seeded set, so no canary can release a reviewer version"
+    ran = {str(x) for x in p.get("defects") or []}
+    missing = [x for x in want if x not in ran]
+    if missing:
+        return False, (f"covers {len(want) - len(missing)} of the {len(want)} seeded defects the mandate lists "
+                       f"(missing {', '.join(missing[:3])}{', ...' if len(missing) > 3 else ''})")
+    seeded = p.get("seeded")
+    if seeded != len(want):
+        return False, f"claims {seeded} seeded, but the mandate's set has {len(want)}"
+    missed = {str(x) for x in p.get("missed") or []} & set(want)
+    try:
+        caught = min(int(p.get("caught", 0)), len(want) - len(missed))
+    except (TypeError, ValueError):
+        return False, f"caught is not a number ({p.get('caught')!r})"
+    rate = gate.get("min_catch_rate", 1.0)
+    if caught / len(want) < rate:
+        return False, f"caught {caught}/{len(want)}, below the mandated {rate:.0%}"
+    return True, f"{caught}/{len(want)}"
+
+
 def earned_versions(m: Mandate, entries: list[dict]) -> dict[tuple, str]:
     """Reviewer versions that earned the current stages: the signed registry, and canary passes of the seeded set."""
-    gate = m["trust"].get("release_gate", {})
     out = {version_key(n, r): "signed mandate registry" for n, r in m.reviewers.items() if r.get("role") == "reviewer"}
     for e in entries:
         p = e["payload"]
-        if e["type"] == "canary" and p.get("seeded") and p.get("caught", 0) / p["seeded"] >= gate.get("min_catch_rate", 1.0):
+        if e["type"] != "canary":
+            continue
+        ok, why = canary_release(m, p)
+        if ok:
             for r in p.get("reviewers", []):
-                out.setdefault(version_key(r["name"], r), f"passed the seeded-defect set (ledger #{e['seq']}, {p['caught']}/{p['seeded']})")
+                out.setdefault(version_key(r["name"], r), f"passed the seeded-defect set (ledger #{e['seq']}, {why})")
     return out
+
+
+def ignored_canaries(m: Mandate, entries: list[dict]) -> list[str]:
+    """Canary runs that released nothing, with the reason (shown by `countersign trust`)."""
+    out = []
+    for e in entries:
+        if e["type"] == "canary" and e["payload"].get("reviewers"):
+            ok, why = canary_release(m, e["payload"])
+            if not ok:
+                out.append(f"ledger #{e['seq']}: canary by {e.get('signer')} releases no reviewer version: {why}")
+    return out
+
+
+def spotcheck_ignored(m: Mandate, e: dict, area: str, counted: set) -> str | None:
+    """Why a spot-check does not count for `area` (None if it counts). Only the area's named owner grades the AI
+    there, and each pack counts once: 50 signatures on one pack are one spot-check, not 50 (red team L3)."""
+    p = e["payload"]
+    owner = m.area(area).owner
+    if e.get("signer") != owner:
+        return f"{e.get('signer')} is not the owner of {area} ({owner})"
+    if p.get("result") not in ("agree", "disagree"):
+        return f"result {p.get('result')!r} is neither agree nor disagree"
+    if not p.get("pack_sha256"):
+        return "it names no pack (pack_sha256), so it cannot be counted once per pack"
+    if (area, p["pack_sha256"]) in counted:
+        return f"pack {str(p['pack_sha256'])[:12]} was already spot-checked in this area"
+    return None
+
+
+def invalid(m: Mandate, problems: list[str]) -> dict[str, dict]:
+    """Trust state when the ledger does not verify: no trust event is used, every area at ask (red team L1)."""
+    why = f"ledger invalid: {problems[0]}" + (f" (+{len(problems) - 1} more)" if len(problems) > 1 else "")
+    state = derive(m, [])
+    for s in state.values():
+        s["cap"], s["reason"], s["gate"], s["next"], s["needed"] = "ask", why, why, None, None
+    return state
+
+
+def verified(ws, m: Mandate, reviewers: dict[str, dict] | None = None) -> tuple[dict[str, dict], list[str]]:
+    """derive() over the ledger only after ledger.verify passes; otherwise every area at ask. Returns (state, problems)."""
+    problems, _ = ledger.verify(ws)
+    if problems:
+        return invalid(m, problems), problems
+    return derive(m, ledger.read(ws), reviewers), []
 
 
 def derive(m: Mandate, entries: list[dict], reviewers: dict[str, dict] | None = None) -> dict[str, dict]:
@@ -98,6 +184,7 @@ def derive(m: Mandate, entries: list[dict], reviewers: dict[str, dict] | None = 
         s["cap"], s["streak"], s["probation"] = strictest(s["cap"], _down(s["cap"])), 0, True
         s["reason"] = f"probation after {why} ({ref})"
 
+    counted: set[tuple[str, str]] = set()  # (area, pack_sha256) spot-checks already counted
     for e in entries:
         p = e["payload"]
         if e["type"] not in ("spotcheck", "escape", "canary", "signoff"):
@@ -126,6 +213,11 @@ def derive(m: Mandate, entries: list[dict], reviewers: dict[str, dict] | None = 
                 else:
                     s["history"].append(f"{ref}: canary run caught {p.get('caught')}/{p.get('seeded')} seeded defects")
             else:
+                skip = spotcheck_ignored(m, e, area, counted)
+                if skip:
+                    s["history"].append(f"{ref}: spot-check by {e.get('signer')} on {p.get('change')} ignored: {skip}")
+                    continue
+                counted.add((area, p["pack_sha256"]))
                 agree = p["result"] != "disagree"
                 s["spotchecks"].append(1 if agree else 0)
                 if s["changes_since_escape"] is not None:
@@ -169,4 +261,4 @@ def table(m: Mandate) -> list[dict]:
     return [{"stage": k, **st.get(k, {})} for k in LADDER]
 
 
-__all__ = ["derive", "caps", "table", "stages", "earned_versions", "TIERS"]
+__all__ = ["derive", "verified", "invalid", "caps", "table", "stages", "earned_versions", "canary_release", "TIERS"]

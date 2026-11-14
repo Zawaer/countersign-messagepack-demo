@@ -1,14 +1,20 @@
 """Model-agnostic reviewer runner: any OpenAI-compatible chat-completions endpoint, stdlib only (urllib).
 
     countersign review-llm <change> --reviewer nemotron|gemini     stage 2: a structured review from a model API
+    countersign review-llm <change> --reviewer nemotron-selfhost --confidential   the same model on our own GPUs
     countersign adjudicate <change>                                 disputes only: the adjudicator's rulings
 
-    preset    base URL                                                    key env          default model
-    nemotron  https://integrate.api.nvidia.com/v1                         NVIDIA_API_KEY   nvidia/nemotron-3.5-super-vl-120b-a12b
-    gemini    https://generativelanguage.googleapis.com/v1beta/openai/    GEMINI_API_KEY   gemini-4-hydrogen (COUNTERSIGN_GEMINI_MODEL)
+    preset             base URL                                                    key env          default model
+    nemotron           https://integrate.api.nvidia.com/v1                         NVIDIA_API_KEY   nvidia/nemotron-3.5-super-vl-120b-a12b
+    nemotron-selfhost  $COUNTERSIGN_SELFHOST_URL (e.g. http://127.0.0.1:8000/v1)   none             nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16
+    gemini             https://generativelanguage.googleapis.com/v1beta/openai/    GEMINI_API_KEY   gemini-4-hydrogen (COUNTERSIGN_GEMINI_MODEL)
 
-COUNTERSIGN_<NAME>_BASE_URL / COUNTERSIGN_<NAME>_MODEL override a preset (e.g. a self-hosted Nemotron for a
-confidential repo). The prompt is a versioned file (prompts/review-v1.md); the runner builds the context itself and
+COUNTERSIGN_<NAME>_BASE_URL / COUNTERSIGN_<NAME>_MODEL override a preset (NAME upper-cased, '-' as '_').
+`nemotron-selfhost` is Nemotron 3.5 Lightning 30B-A3B (open weights, BF16), the smaller sibling of the hosted 120B
+Super, on a vLLM server we run (scripts/selfhost/, one A100 80GB). Same prompt; NOT the same model. It fills the
+registry's `nemotron` slot (the self-hostable one), so a confidential change may use it; because its model id is not
+the version the mandate trusts, trust.release_gate holds every area at `ask` until it passes the seeded set. It writes
+to reviews-selfhost/ unless --out says otherwise, and logs GPU wall-clock time (not tokens) as its cost. The prompt is a versioned file (prompts/review-v1.md); the runner builds the context itself and
 stamps reviewer/model/vendor/prompt_version/reviewed_at, so none of that is ever taken from the model.
 API keys are read from the environment only and are never written to files, logs or error messages.
 """
@@ -22,6 +28,7 @@ import re
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -48,6 +55,15 @@ PRESETS: dict[str, dict] = {
                  "temperature": 0.6, "top_p": 0.95, "max_tokens": 32768,  # reasoning tokens count here: 16k cut a review off
                  "thinking": {"chat_template_kwargs": {"enable_thinking": True}},
                  "no_thinking": {"chat_template_kwargs": {"enable_thinking": False}}},
+    # Nemotron on our own GPU (scripts/selfhost/: vLLM on one A100 80GB at Verda, reached over an SSH tunnel). The 120B
+    # Super does not fit one A100 (no FP8/NVFP4 on Ampere), so this is its 30B-A3B Lightning sibling in BF16. Sampling
+    # as the hosted preset (temperature 0.6) so the two are compared under the same settings.
+    "nemotron-selfhost": {"base_url": None, "base_url_env": "COUNTERSIGN_SELFHOST_URL", "key_env": None,
+                          "model": "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16", "vendor": "NVIDIA", "provider": "verda",
+                          "registry": "nemotron", "self_hosted": True, "out_dir": "reviews-selfhost",
+                          "temperature": 0.6, "top_p": 0.95, "max_tokens": 32768,
+                          "thinking": {"chat_template_kwargs": {"enable_thinking": True}},
+                          "no_thinking": {"chat_template_kwargs": {"enable_thinking": False}}},
     "gemini": {"base_url": "https://generativelanguage.googleapis.com/v1beta/openai/", "key_env": "GEMINI_API_KEY",
                "model": "gemini-4-hydrogen", "model_env": "COUNTERSIGN_GEMINI_MODEL", "vendor": "Google", "provider": "google",
                "temperature": None, "top_p": None, "max_tokens": 16384,
@@ -75,6 +91,16 @@ class LLMConfig:
     thinking: dict = field(default_factory=dict)
     no_thinking: dict = field(default_factory=dict)
     hosted_default: bool = True  # False when the base URL was overridden (e.g. a self-hosted endpoint)
+    registry: str = ""  # the mandate registry entry this preset reviews as (default: the preset name)
+    self_hosted: bool = False  # a server we run (the nemotron-selfhost preset)
+    gpu: str | None = None  # self-hosted: "A100 80GB x1"
+    gpu_count: int = 0
+    gpu_usd_per_hour: float | None = None  # per GPU-hour; None = rate not given, cost unknown
+    max_model_len: int | None = None  # self-hosted: the server's context window (COUNTERSIGN_SELFHOST_MAX_MODEL_LEN)
+
+    @property
+    def endpoint_host(self) -> str:
+        return (urllib.parse.urlsplit(self.base_url).hostname or "").lower()
 
 
 def config(name: str, env: dict | None = None) -> LLMConfig:
@@ -82,15 +108,39 @@ def config(name: str, env: dict | None = None) -> LLMConfig:
     if name not in PRESETS:
         raise SystemExit(f"unknown reviewer preset {name!r}; use one of {sorted(PRESETS)}")
     p = PRESETS[name]
-    up = name.upper()
-    base = env.get(f"COUNTERSIGN_{up}_BASE_URL") or p["base_url"]
+    up = name.upper().replace("-", "_")
+    override = env.get(f"COUNTERSIGN_{up}_BASE_URL") or (env.get(p["base_url_env"]) if p.get("base_url_env") else None)
+    base = override or p["base_url"]
+    if not base:
+        raise SystemExit(f"{name}: set {p['base_url_env']} to the server's OpenAI-compatible URL "
+                         "(e.g. http://127.0.0.1:8000/v1 through scripts/selfhost/tunnel.sh)")
     model = env.get(f"COUNTERSIGN_{up}_MODEL") or (env.get(p["model_env"]) if p.get("model_env") else None) or p["model"]
+    selfhost = bool(p.get("self_hosted"))
+    n_gpu = int(env.get("COUNTERSIGN_GPU_COUNT") or 1) if selfhost else 0
+    rate = env.get("COUNTERSIGN_GPU_USD_PER_HOUR") if selfhost else None
     return LLMConfig(name=name, base_url=base.rstrip("/"), model=model, vendor=p["vendor"], provider=p["provider"],
-                     api_key=env.get(f"COUNTERSIGN_{up}_API_KEY") or env.get(p["key_env"], ""),
+                     api_key=env.get(f"COUNTERSIGN_{up}_API_KEY") or (env.get(p["key_env"], "") if p.get("key_env") else ""),
                      temperature=p["temperature"], top_p=p["top_p"],
                      max_tokens=int(env.get("COUNTERSIGN_MAX_TOKENS") or p["max_tokens"]),
                      thinking=p["thinking"], no_thinking=p["no_thinking"],
-                     hosted_default=not env.get(f"COUNTERSIGN_{up}_BASE_URL"))
+                     hosted_default=not override, registry=p.get("registry", name), self_hosted=selfhost,
+                     gpu=f"{env.get('COUNTERSIGN_GPU_TYPE') or 'A100 80GB'} x{n_gpu}" if selfhost else None, gpu_count=n_gpu,
+                     gpu_usd_per_hour=float(rate) if rate else None,
+                     max_model_len=int(env["COUNTERSIGN_SELFHOST_MAX_MODEL_LEN"]) if selfhost and env.get("COUNTERSIGN_SELFHOST_MAX_MODEL_LEN") else None)
+
+
+def selfhost_fit(max_model_len: int, chars_per_token: float = 3.1, margin: int = 1024) -> tuple[int, int]:
+    """(context chars, max_tokens) that fit a server's context window: vLLM rejects a request whose prompt plus
+    max_tokens exceeds max-model-len. 3.1 chars/token is below every ratio seen on our contexts (3.14 to 3.69), so the
+    estimate errs short. At >= 98k tokens nothing changes (180k chars, 32k answer, as the hosted runs)."""
+    out = 32768 if max_model_len >= 98304 else 16384
+    chars = min(DEFAULT_CONTEXT_CHARS, int((max_model_len - out - margin) * chars_per_token))
+    return chars, out
+
+
+def vendor_hosts() -> set[str]:
+    """Hosts of the vendor-hosted endpoints: a confidential change never goes to one, whatever the override says."""
+    return {(urllib.parse.urlsplit(p["base_url"]).hostname or "").lower() for p in PRESETS.values() if p.get("base_url")}
 
 
 # --- HTTP ---------------------------------------------------------------------------------------
@@ -320,6 +370,10 @@ def _compact_facts(facts: dict) -> dict:
 # --- seeded changes (mutants, planted injections) ----------------------------------------------------
 
 BLIND_FORBIDDEN = ("mut", "mutant", "mutation", "inject", "seeded", "canary")
+# Benchmark variants ("same issue, several fixes", evidence/var-*): facts record which brief produced the fix and, for
+# our own seeded variant, the planted side change. A blind review drops these keys; the words must not reach the text.
+BENCHMARK_KEYS = ("variant_of", "generated_by", "seeded", "requirements_reused")
+BENCHMARK_WORDS = ("hidden_downgrade", "this benchmark", "coding agents for")
 LEAK = re.compile(r"\b(?:mut|mutant|mutation|inject|seeded|canary)\b", re.I)
 
 
@@ -416,6 +470,9 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
     if mut is not None and blind:
         shown = base_change(change)
         facts = _blind_facts(facts, change, shown)
+    bench = {k: facts[k] for k in BENCHMARK_KEYS if k in facts}
+    if bench and blind:  # a benchmark variant (evidence/var-*): how it was made is for measurement, not for the reviewer
+        facts = {k: v for k, v in facts.items() if k not in BENCHMARK_KEYS}
     files = facts.get("diff", {}).get("by_file", [])
     generated = [f for f in files if f.get("kind") == "generated"]
     normal = [f for f in files if f.get("kind") != "generated"]
@@ -508,6 +565,10 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
             leaks = sorted({m.group(0) for m in LEAK.finditer(text)} | ({change} if change in text else set()))
             if leaks:
                 raise SystemExit(f"refused: the blind context for {change} would reveal it is seeded ({', '.join(leaks)}); nothing sent")
+    if bench and blind:
+        leaks = sorted(k for k in (*BENCHMARK_KEYS, *BENCHMARK_WORDS) if k in text)
+        if leaks:
+            raise SystemExit(f"refused: the blind context for {change} would reveal how the variant was made ({', '.join(leaks)}); nothing sent")
     return {"text": text, "inputs": inputs, "not_given": not_given, "req_ids": [r["id"] for r in reqs.get("requirements", [])],
             "chars": len(text), "seeded": seeded}
 
@@ -520,21 +581,34 @@ def _panel(ws: Workspace, change: str) -> tuple[mandate_mod.Mandate, dict]:
     return m, m.panel([a["name"] for a in decide_mod.touched_areas(facts, m)])
 
 
-def check_allowed(ws: Workspace, change: str, cfg: LLMConfig, role: str) -> dict:
+def confidentiality(ws: Workspace, change: str, force: bool = False) -> dict:
+    """Is this change confidential, and why. `force` (--confidential) can only make it stricter, never open it."""
+    _, panel = _panel(ws, change)
+    if force and not panel["confidential"]:
+        return {"confidential": True, "why": "forced by --confidential (the mandate does not mark it)", "forced": True}
+    return {"confidential": panel["confidential"], "why": panel["why"], "forced": False}
+
+
+def check_allowed(ws: Workspace, change: str, cfg: LLMConfig, role: str, force_confidential: bool = False) -> dict:
     """The mandate decides who may read the code. Raise SystemExit (nothing is sent) if this call is not allowed."""
     m, panel = _panel(ws, change)
-    reg = m.reviewers.get(cfg.name)
+    name = cfg.registry or cfg.name
+    reg = m.reviewers.get(name)
     if reg is None:
-        raise SystemExit(f"{cfg.name} is not in the mandate's reviewer registry")
-    excluded = next((x for x in panel["excluded"] if x["name"] == cfg.name), None)
+        raise SystemExit(f"{name} is not in the mandate's reviewer registry")
+    excluded = next((x for x in panel["excluded"] if x["name"] == name), None)
     if excluded:
-        raise SystemExit(f"refused: {cfg.name} may not read change {change}: {excluded['reason']}")
-    if panel["confidential"] and cfg.hosted_default:
-        raise SystemExit(f"refused: change {change} is confidential ({panel['why']}); {cfg.name} is self-hostable, but this "
-                         f"call would go to the vendor-hosted endpoint {cfg.base_url}. Set COUNTERSIGN_{cfg.name.upper()}_BASE_URL "
-                         "to your own server.")
+        raise SystemExit(f"refused: {name} may not read change {change}: {excluded['reason']}")
+    conf = confidentiality(ws, change, force_confidential)
+    if conf["confidential"] and not reg.get("self_hostable", False):
+        raise SystemExit(f"refused: {name} is not self-hostable; may not read code in a confidential change ({conf['why']})")
+    if conf["confidential"] and (cfg.hosted_default or cfg.endpoint_host in vendor_hosts()):
+        up = cfg.name.upper().replace("-", "_")
+        raise SystemExit(f"refused: change {change} is confidential ({conf['why']}); {name} is self-hostable, but this "
+                         f"call would go to the vendor-hosted endpoint {cfg.base_url}. Use --reviewer nemotron-selfhost "
+                         f"(COUNTERSIGN_SELFHOST_URL) or set COUNTERSIGN_{up}_BASE_URL to your own server.")
     if role == "adjudicator" and reg.get("role") != "adjudicator":
-        raise SystemExit(f"{cfg.name} is not the adjudicator in the mandate (role {reg.get('role')})")
+        raise SystemExit(f"{name} is not the adjudicator in the mandate (role {reg.get('role')})")
     return reg
 
 
@@ -542,10 +616,26 @@ def _stamp(when: datetime | None) -> str:
     return (when or datetime.now(timezone.utc)).astimezone(ZoneInfo("Europe/Helsinki")).replace(microsecond=0).isoformat()
 
 
+def gpu_cost(cfg: LLMConfig, latency_ms: int) -> dict:
+    """Self-hosted: what one call cost is GPU time, not tokens. wall-clock of the call x GPUs x the hourly rate.
+    An estimate: it charges the call for the whole box while it ran and ignores idle time (provisioning, loading)."""
+    hours = latency_ms / 3_600_000 * cfg.gpu_count
+    usd = round(hours * cfg.gpu_usd_per_hour, 4) if cfg.gpu_usd_per_hour is not None else None
+    return {"gpu": cfg.gpu, "gpu_seconds": round(latency_ms / 1000, 1), "gpu_hours": round(hours, 4), "usd": usd,
+            "basis": (f"GPU wall-clock x {cfg.gpu_count} GPUs x ${cfg.gpu_usd_per_hour}/GPU-hour (COUNTERSIGN_GPU_USD_PER_HOUR)"
+                      if usd is not None else "GPU wall-clock; no hourly rate given (COUNTERSIGN_GPU_USD_PER_HOUR)")}
+
+
 def _log_costs(ws: Workspace, cfg: LLMConfig, change: str, purpose: str, log: list[ChatResult]) -> None:
     for i, r in enumerate(log):
-        costs.append(ws, provider=cfg.provider, model=cfg.model, change=change,
-                     purpose=purpose + (" (JSON repair turn)" if i else ""),
+        purpose_i = purpose + (" (JSON repair turn)" if i else "")
+        if cfg.self_hosted:
+            g = gpu_cost(cfg, r.latency_ms)
+            costs.append(ws, provider=cfg.provider, model=cfg.model, change=change, purpose=purpose_i,
+                         tokens_in=r.usage.get("prompt_tokens"), tokens_out=r.usage.get("completion_tokens"),
+                         usd=g.pop("usd"), source="estimate" if cfg.gpu_usd_per_hour is not None else "unknown", extra=g)
+            continue
+        costs.append(ws, provider=cfg.provider, model=cfg.model, change=change, purpose=purpose_i,
                      tokens_in=r.usage.get("prompt_tokens"), tokens_out=r.usage.get("completion_tokens"),
                      source="api usage field" if r.usage.get("total_tokens") else "unknown")
 
@@ -563,16 +653,47 @@ def _save_raw(folder: Path, stem: str, cfg: LLMConfig, system: str, user: str, l
 
 # --- review-llm ---------------------------------------------------------------------------------
 
+def _out_dir(reviewer: str, out_dir: str | None) -> str:
+    """Where a preset's reviews go: reviews/ unless the preset says otherwise (nemotron-selfhost: reviews-selfhost/,
+    so a self-hosted run never overwrites the committed hosted review in the same slot). Relative to ws.inputs."""
+    out = out_dir or PRESETS[reviewer].get("out_dir", "reviews")
+    if Path(out).is_absolute() or ".." in Path(out).parts:
+        raise SystemExit(f"--out must be a folder name under the workspace, not {out!r}")
+    return out
+
+
+def _runner_extra(cfg: LLMConfig, conf: dict, log: list[ChatResult]) -> dict:
+    """Where the code went, stamped into every review: the endpoint's host, whether we run it, and the confidentiality."""
+    out = {"preset": cfg.name, "endpoint_host": cfg.endpoint_host, "self_hosted": cfg.self_hosted,
+           "confidential": conf["confidential"], **({"confidential_forced": True} if conf.get("forced") else {})}
+    if cfg.self_hosted:
+        g = [gpu_cost(cfg, r.latency_ms) for r in log]
+        out.update({"provider": cfg.provider, "gpu": cfg.gpu, "max_model_len": cfg.max_model_len, "max_tokens": cfg.max_tokens,
+                    "wall_clock_s": round(sum(r.latency_ms for r in log) / 1000, 1),
+                    "gpu_hours": round(sum(x["gpu_hours"] for x in g), 4),
+                    "usd_estimate": round(sum(x["usd"] for x in g), 4) if cfg.gpu_usd_per_hour is not None else None})
+    return out
+
+
 def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, post=urllib_post,
-               sleep=time.sleep, when: datetime | None = None, budget: int | None = None, blind: bool = True) -> Path:
+               sleep=time.sleep, when: datetime | None = None, budget: int | None = None, blind: bool = True,
+               confidential: bool = False, out_dir: str | None = None) -> Path:
     """Seeded changes (<n>-mutK, <n>-inject) are reviewed as the PR a reviewer would see: the branch diff with the
     seeded edit applied, the base change's requirements and id, and (blind, the default) nothing that says it is seeded.
-    Which seeded change it was is stamped into runner.seeded, never sent."""
+    Which seeded change it was is stamped into runner.seeded, never sent.
+    confidential=True (--confidential) treats the change as confidential even if the mandate does not: only a
+    self-hostable reviewer on a non-vendor endpoint may read it. It can only make the check stricter."""
     env = os.environ if env is None else env
     cfg = config(reviewer, env)
-    reg = check_allowed(ws, change, cfg, "reviewer")
-    if not cfg.api_key:
+    out = _out_dir(reviewer, out_dir)
+    reg = check_allowed(ws, change, cfg, "reviewer", force_confidential=confidential)
+    conf = confidentiality(ws, change, confidential)
+    if not cfg.api_key and PRESETS[reviewer].get("key_env"):
         raise SystemExit(f"no API key for {reviewer}: set {PRESETS[reviewer]['key_env']} (a CI secret; never commit it)")
+    if cfg.max_model_len:  # a self-hosted context window smaller than the hosted one: shrink the answer, then the context
+        fit_chars, fit_out = selfhost_fit(cfg.max_model_len)
+        cfg.max_tokens = min(cfg.max_tokens or fit_out, fit_out)
+        budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or 0) or fit_chars
     budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or DEFAULT_CONTEXT_CHARS)
     ctx = build_review_context(ws, change, repo, budget, blind=blind)
     system = (ws.root / "prompts" / f"{REVIEW_PROMPT}.md").read_text(encoding="utf-8")
@@ -582,19 +703,24 @@ def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict |
     try:
         parsed, repaired = ask_json(ChatClient(cfg, post, sleep), system, user, lambda r: review_problems(r, ctx["req_ids"]), log)
     finally:
-        folder = ws.inputs / "reviews" / change
-        _save_raw(folder, reviewer, cfg, system, user, log, {"prompt_version": REVIEW_PROMPT, "started": started,
-                                                             **({"seeded": ctx["seeded"]} if ctx.get("seeded") else {})})
+        folder = ws.inputs / out / change
+        _save_raw(folder, cfg.registry, cfg, system, user, log, {"prompt_version": REVIEW_PROMPT, "started": started,
+                                                                 "preset": cfg.name, "endpoint_host": cfg.endpoint_host,
+                                                                 "self_hosted": cfg.self_hosted,
+                                                                 **({"seeded": ctx["seeded"]} if ctx.get("seeded") else {})})
         _log_costs(ws, cfg, change, f"review {change} ({reviewer}, {REVIEW_PROMPT})", log)
-    return _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, [r.usage for r in log], started)
+    return _write_review(ws, change, cfg.registry, cfg, reg, ctx, parsed, repaired, [r.usage for r in log], started,
+                         _runner_extra(cfg, conf, log), out)
 
 
-def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: list[dict], started, extra_runner=None) -> Path:
+def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: list[dict], started, extra_runner=None,
+                  out: str = "reviews") -> Path:
+    """`reviewer` is the registry slot (nemotron-selfhost writes nemotron.json); runner.preset says which endpoint."""
     review = {
         "reviewer": reviewer, "model": cfg.model, "vendor": cfg.vendor, "prompt_version": REVIEW_PROMPT, "reviewed_at": started,
         "inputs": ctx["inputs"], "not_given": ctx["not_given"],
         "runner": {"tool": "countersign review-llm", "endpoint": cfg.base_url, "self_hostable": bool(reg.get("self_hostable")),
-                   "calls": len(usage), "json_repaired": repaired, "raw": f"reviews/{change}/raw/{reviewer}.response.json",
+                   "calls": len(usage), "json_repaired": repaired, "raw": f"{out}/{change}/raw/{reviewer}.response.json",
                    "usage": {k: sum(u.get(k, 0) for u in usage) for k in ("prompt_tokens", "completion_tokens")},
                    **({"seeded": ctx["seeded"]} if ctx.get("seeded") else {}), **(extra_runner or {})},
         "summary": str(parsed.get("summary", "")),
@@ -611,21 +737,22 @@ def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: 
         "refutations": [{"finding": str(x.get("finding", "")), "reason": str(x.get("reason", "")), "evidence": x.get("evidence", [])}
                         for x in parsed.get("refutations", []) if isinstance(x, dict)] if isinstance(parsed.get("refutations"), list) else [],
     }
-    folder = ws.inputs / "reviews" / change
+    folder = ws.inputs / out / change
     write_json(folder / f"{reviewer}.json", review)
     (folder / f"{reviewer}.md").write_text(review_markdown(review, change), encoding="utf-8")
     return folder / f"{reviewer}.json"
 
 
 def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, budget: int | None = None,
-                    blind: bool = True) -> Path:
+                    blind: bool = True, confidential: bool = False, out_dir: str | None = None) -> Path:
     """Re-parse a saved raw response (reviews/<n>/raw/<reviewer>.response.json) with the current parser, without calling
     the API. For when the runner rejected an answer the engine could have used. The context is rebuilt and must hash
     to the one that was sent, so the review's inputs/not_given are exactly what the model saw."""
     env = os.environ if env is None else env
     cfg = config(reviewer, env)
-    reg = check_allowed(ws, change, cfg, "reviewer")
-    raw = read_json(ws.inputs / "reviews" / change / "raw" / f"{reviewer}.response.json")
+    out = _out_dir(reviewer, out_dir)
+    reg = check_allowed(ws, change, cfg, "reviewer", force_confidential=confidential)
+    raw = read_json(ws.inputs / out / change / "raw" / f"{cfg.registry}.response.json")
     budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or DEFAULT_CONTEXT_CHARS)
     ctx = build_review_context(ws, change, repo, budget, blind=(raw.get("seeded") or {}).get("blind", blind))
     system = (ws.root / "prompts" / f"{raw['prompt_version']}.md").read_text(encoding="utf-8")
@@ -641,15 +768,20 @@ def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: d
         except ValueError:
             continue
         if not review_problems(parsed, ctx["req_ids"]):
-            return _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, i > 0, [c["usage"] for c in raw["calls"]], raw["started"],
-                                 {"reparsed_from_raw": f"call {i + 1} of {len(raw['calls'])}, re-parsed offline with the current parser"})
+            extra = {"reparsed_from_raw": f"call {i + 1} of {len(raw['calls'])}, re-parsed offline with the current parser"}
+            if "endpoint_host" in raw:  # where the saved answer came from, not where this re-parse would send it
+                extra.update({k: raw[k] for k in ("preset", "endpoint_host", "self_hosted") if k in raw})
+            return _write_review(ws, change, cfg.registry, cfg, reg, ctx, parsed, i > 0, [c["usage"] for c in raw["calls"]],
+                                 raw["started"], extra, out)
     raise SystemExit("no saved answer passes the current checks")
 
 
 def review_markdown(r: dict, change: str) -> str:
     out = [f"# Review of {change} by {r['reviewer']} ({r['model']}, {r['prompt_version']})", "",
            f"_Run by `countersign review-llm` at {r['reviewed_at']}; raw response in `{r['runner']['raw']}`. "
-           f"Tokens in/out: {r['runner']['usage']['prompt_tokens']}/{r['runner']['usage']['completion_tokens']}._", "",
+           f"Tokens in/out: {r['runner']['usage']['prompt_tokens']}/{r['runner']['usage']['completion_tokens']}."
+           + (f" Endpoint host {r['runner']['endpoint_host']}" + (f" (self-hosted, {r['runner'].get('gpu')})" if r["runner"].get("self_hosted") else "")
+              + "." if r["runner"].get("endpoint_host") else "") + "_", "",
            f"**Summary:** {r['summary'] or '(none given)'}", "", "| Req | Verdict | Basis |", "|---|---|---|"]
     out += [f"| {v['req']} | {v['verdict']} | {v['confidence_basis'].replace('|', '/')} |" for v in r["requirement_verdicts"]]
     out += ["", "## Findings", ""] + [f"- **{f['id']}** [{f['severity']}, {f['category']}] {f['title']}: {f['claim']}" for f in r["findings"]]

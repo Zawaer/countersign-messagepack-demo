@@ -4,7 +4,7 @@
 # Any edit invalidates the signature; until the owner re-signs, nothing clears below `ask`.
 
 id: messagepack-csharp
-version: 4
+version: 6
 owner: Toivo
 repo: https://github.com/te-industry-tech-office/junction26-messagepack-csharp
 
@@ -28,7 +28,27 @@ reviewers:
 
 # Areas: first match wins, so order is precedence. max_ai_tier is the most lenient tier the AI may
 # assign alone in that area (its clearance right). The trust ledger can lower it after an escape.
+# v5 (red team G1, G3): build inputs and CI come first. A props/targets file reaches into every project below it
+# (a one-line Compile Include put a tests/ file into MessagePack.dll), and a workflow runs with the repo's secrets,
+# so they are not judged by the folder they sit in: src/Directory.Build.props and
+# src/MessagePack.SourceGenerator/Directory.Build.props are build-config, not tests or the generator. Both caps are
+# ask, so this precedence can only make a file stricter.
 areas:
+  build-config:
+    description: MSBuild and SDK inputs that change what every project below them compiles, restores or runs
+    owner: Rene
+    paths: ["**/Directory.Build.*", "**/Directory.Packages.props", "**/*.props", "**/*.targets", "**/global.json",
+            "**/nuget.config", "**/NuGet.config", "**/NuGet.Config", ".config/**"]
+    sensitivity: high
+    max_ai_tier: ask
+    checks: [build]
+  ci:
+    description: CI workflows; they run with the repository's secrets and publish packages
+    owner: Toivo
+    paths: [".github/**", "azure-pipelines/**", "azure-pipelines.yml"]
+    sensitivity: high
+    max_ai_tier: ask
+    checks: []
   runtime-core:
     description: Serializer runtime; deserializes untrusted input
     owner: Toivo
@@ -52,9 +72,9 @@ areas:
     # tests.full_suite added in v3: 4 seeded defects were caught only by the full suite (measurement/results.json)
     checks: [build, tests.targeted, tests.fail_without_fix, tests.full_suite]
   build:
-    description: Build, packaging and CI configuration
+    description: Project files and the solution (build inputs that reach beyond one project are build-config)
     owner: Rene
-    paths: ["**/*.csproj", "**/*.props", "**/*.targets", "global.json", "*.sln", "azure-pipelines/**", ".github/**", ".config/**"]
+    paths: ["**/*.csproj", "*.sln"]
     sensitivity: medium
     max_ai_tier: notify
     checks: [build]
@@ -65,6 +85,15 @@ areas:
     sensitivity: low
     max_ai_tier: silent
     checks: []
+  # v5 (security-downgrade benchmark): weakening a security test (MessagePackSecurityTests.cs) cleared at silent in
+  # tests. Tests that pin security behaviour come before `tests` and go to the owner.
+  security-tests:
+    description: Tests that pin security behaviour (untrusted-data limits, unsafe code)
+    owner: Toivo
+    paths: ["tests/**/*Security*", "tests/**/*Security*/**", "tests/**/*Unsafe*", "tests/**/*Unsafe*/**"]
+    sensitivity: high
+    max_ai_tier: ask
+    checks: [build, tests.targeted]
   tests:
     description: Test projects, test resources, samples, benchmarks
     owner: Toivo
@@ -88,6 +117,9 @@ security_sensitive_paths:
   - "src/MessagePack/Formatters/**"
   - "src/MessagePack/Internal/**"
   - "**/*Unsafe*.cs"
+  - "tests/**/*Security*"           # v5: security tests (weakening one is a security downgrade)
+  - "tests/**/*Security*/**"
+  - "tests/**/*Unsafe*"
 
 # Deterministic checks each requirement clause needs, by clause type.
 # A clause may add its own with `checks:` in requirements/<change>.yaml.
@@ -152,14 +184,26 @@ rules:
      message: "The change brings in a package version with a known advisory not on base"}
   - {id: build-egress-violation, when: egress_violation, tier: block,
      message: "The build tried to reach a host outside its network policy"}
+  # v5 (red team S2, S3, S7): deps.delta at fail/error, or a new/changed dotnet tool, MSBuild SDK or SDK pin
+  # (build-time code that is not in the restored package graph).
+  - {id: dependency-check-failed, when: deps_check_failed, tier: ask,
+     message: "deps.delta failed or errored, or the change adds or changes a dotnet tool, MSBuild SDK or SDK pin: the owner reviews the supply chain"}
+  # v5 (red team I9): binary files the scanner could not read: a human looks; nothing planted was found, so not R-INJECT.
+  - {id: injection-unscannable, when: injection_unscannable, tier: ask,
+     message: "The change adds content the injection scan cannot read (binary files): a human looks at it"}
+  # v5 (red team G2): a file named like generated output whose input did not change is a hand edit nobody regenerated.
+  - {id: generated-file-hand-edited, when: generated_hand_edited, tier: ask,
+     message: "A generated-looking file (*.g.cs or a T4 template's output) changed without its input: a human reviews the hand edit"}
 
 # Risk score: additive, every point has a printed reason. Bands map to tiers.
 risk:
   sensitivity_points: {low: 0, medium: 10, high: 20, critical: 35}
-  per_file: 1
-  files_cap: 20
-  per_100_lines: 4                 # non-generated lines added + removed
-  lines_cap: 20
+  # v6 (red team G4): size grows smoothly, no cliff. points = min(cap, knee * ln(1 + per * size / knee)): about `per`
+  # per unit for a small change, bending logarithmically for a large one. 49 one-line test files now score 43.1 (ask),
+  # close to 51; v5's linear rate capped at 20 scored 49 files like 20. The >50-files split rule is unchanged.
+  files: {per: 1.1, knee: 80, cap: 45}
+  lines: {per: 4, knee: 100, cap: 20}  # size = non-generated lines added + removed, per 100 (per as in v5)
+  size_cap: 45                         # files_changed + lines_changed together (v5: 40): size alone never blocks
   per_generated_file: 0.1
   generated_cap: 10
   public_api_change: 20
@@ -186,8 +230,15 @@ trust:
   # Canaries: seeded defects (evidence/*-mut*) sent through the reviewer panel every week per area, recorded with
   # `countersign canary`. Any miss drops a stage. A run that catches at least min_catch_rate of the set also
   # releases the reviewer versions it ran with (a new model or prompt_version restarts at ask until then).
+  # v5 (red team L2): a run releases only if it lists every id in seeded_set (a "1 of 1" run releases nothing).
   canaries: {per_week_per_area: 2}
-  release_gate: {seeded_set: "evidence/*-mut*", min_catch_rate: 1.0}
+  release_gate:
+    min_catch_rate: 1.0
+    seeded_set: [2129-mut1, 2129-mut2, 2234-mut1, 2234-mut2, 2234-mut3, 2234-mut4, 2234-mut5, 2234-mut6, 2234-mut7,
+                 2283-mut1, 2283-mut2, 2283-mut3, 2283-mut4, 2283-mut5]
+  # v5 (red team L3): a spot-check counts only if its signer owns the area, and once per pack (pack_sha256).
+  # Anything else is ignored, and `countersign trust` says why.
+  spotchecks: {signer: area_owner, count_once_per: pack_sha256}
 
 # Never checked by this pipeline; printed in every pack under "not checked".
 known_gaps:

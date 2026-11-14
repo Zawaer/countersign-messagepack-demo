@@ -611,6 +611,673 @@
         "head_serial": "urn:uuid:4351f989-c156-501a-a4ff-890d8de81c45"
       },
       "scope": "all 30 *.csproj in the tree (src, tests, sandbox, benchmark), restored as one throwaway solution; the graph is NuGet's restore output (obj/**/project.assets.json)"
+    },
+    {
+      "id": "build.egress",
+      "tool": "CRACI network policy (cracicorp/setup@v1) + job log scan",
+      "policy": {
+        "default": "deny",
+        "presets": [
+          "github"
+        ],
+        "tls_server_name_patterns": [
+          "github.com",
+          "codeload.github.com",
+          "objects.githubusercontent.com",
+          "api.nuget.org",
+          "*.nuget.org",
+          "pkgs.dev.azure.com",
+          "*.vsblob.vsassets.io",
+          "builds.dotnet.microsoft.com",
+          "dotnetcli.azureedge.net",
+          "dotnetcli.blob.core.windows.net",
+          "*.dot.net",
+          "dot.net",
+          "download.visualstudio.microsoft.com"
+        ],
+        "tcp_host_patterns": [],
+        "cidrs": [],
+        "ports": [
+          443
+        ]
+      },
+      "policy_text": "default: deny\npresets: [github]\nconnections:\n  - tls:\n      serverNamePatterns: [github.com, codeload.github.com, objects.githubusercontent.com,\n                           api.nuget.org, \"*.nuget.org\", pkgs.dev.azure.com, \"*.vsblob.vsassets.io\",\n                           builds.dotnet.microsoft.com, dotnetcli.azureedge.net, dotnetcli.blob.core.windows.net,\n                           \"*.dot.net\", dot.net, download.visualstudio.microsoft.com]\n      ports: [443]\n",
+      "policy_sha256": "31fafb855e985c38a31b18cfa9140b83a5b9caa5539eadbdf7344e88b20d2fa1",
+      "provenance": {
+        "workflow": ".github/workflows/countersign.yml",
+        "job": "facts",
+        "workflow_commit": "9e708dbb849708b99fe45c3269b04f422e907d93",
+        "run": "https://github.com/Zawaer/countersign/actions/runs/43559084959",
+        "run_attempt": "1",
+        "runner_name": "craci-1-1f0727ec",
+        "craci_job_ca": {
+          "path": "/usr/local/share/ca-certificates/craci.crt",
+          "sha256": "baa0ee3ae7ed8f66cd7175b67a7351f91531c53a210f3955fbd6b456ccc79b31"
+        },
+        "craci_env": []
+      },
+      "logs_scanned": 40,
+      "blocked": [],
+      "blocked_hosts": [],
+      "nuget_feeds_on_head": {
+        "nuget.config:dotnet-tools": "https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-tools/nuget/v3/index.json",
+        "nuget.config:nuget": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:nuget.org": "https://api.nuget.org/v3/index.json",
+        "src/MessagePack.UnityClient/Assets/NuGet.config:repositoryPath": "./Packages"
+      },
+      "nuget_feeds_outside_policy": {},
+      "authoritative_record": "craci.network (CRACI network trace via the API; needs CRACI_API_TOKEN), or the job's View trace in the CRACI app",
+      "status": "pass",
+      "summary": "built on CRACI under a deny-by-default policy: only 13 TLS host patterns on ports 443 (github.com, codeload.github.com, objects.githubusercontent.com, api.nuget.org, *.nuget.org, pkgs.dev.azure.com, ...); presets ['github']; no blocked connection in 40 logs; every NuGet feed the head declares is inside the policy",
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43559084959"
+    },
+    {
+      "id": "tests.mutation",
+      "tool": "evidence/scripts/mutation.py + dotnet test (one mutant at a time, the targeted filter)",
+      "tool_version": "8.0.402",
+      "status": "fail",
+      "summary": "8 mutants of the changed source lines: 5 killed, 3 survived; 3 of 6 mutated hunks have a killed mutant; surviving hunks: TypeCollector.cs:1148, TypeCollector.cs:1163-1166, TypeCollector.cs:1179-1182",
+      "rule": "killed = at least one new test (new: true in tests.fail_without_fix) fails on the mutant and passed on head; pass = every mutated hunk has a killed mutant",
+      "operators": [
+        "negate_condition",
+        "drop_statement",
+        "drop_guard",
+        "swap_logical",
+        "drop_guard_conjunct",
+        "return_default",
+        "remove_call"
+      ],
+      "max_mutants": 8,
+      "project": "tests/MessagePack.SourceGenerator.Tests",
+      "filter": [
+        "FullyQualifiedName~SuppressSourceGenerationAnalyzerTests."
+      ],
+      "tests_judged": [
+        "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+        "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+        "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+        "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+        "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+        "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+        "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+        "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed"
+      ],
+      "not_covered": "ExecutionTests/MapModeExecutionTests (SDK 9) are not run against the mutants; files that are not C# are not mutated",
+      "hunks": [
+        {
+          "id": "H1",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1008,
+            1008
+          ],
+          "code_lines": [
+            1008
+          ],
+          "mutants": [
+            "M1"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H2",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1023,
+            1026
+          ],
+          "code_lines": [
+            1023,
+            1025
+          ],
+          "mutants": [
+            "M2",
+            "M7"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H3",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1039,
+            1042
+          ],
+          "code_lines": [
+            1039,
+            1041
+          ],
+          "mutants": [
+            "M3",
+            "M8"
+          ],
+          "status": "killed"
+        },
+        {
+          "id": "H4",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1148,
+            1148
+          ],
+          "code_lines": [
+            1148
+          ],
+          "mutants": [
+            "M4"
+          ],
+          "status": "survived"
+        },
+        {
+          "id": "H5",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1163,
+            1166
+          ],
+          "code_lines": [
+            1163,
+            1165
+          ],
+          "mutants": [
+            "M5"
+          ],
+          "status": "survived"
+        },
+        {
+          "id": "H6",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "lines": [
+            1179,
+            1182
+          ],
+          "code_lines": [
+            1179,
+            1181
+          ],
+          "mutants": [
+            "M6"
+          ],
+          "status": "survived"
+        }
+      ],
+      "surviving_hunks": [
+        "H4",
+        "H5",
+        "H6"
+      ],
+      "mutants": [
+        {
+          "id": "M1",
+          "hunk": "H1",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1008,
+          "operator": "drop_statement",
+          "before": "                            continue; // The key kind does not match the other members; the diagnostic is reported, so skip this member.",
+          "after": "                            { } // The key kind does not match the other members; the diagnostic is reported, so skip this member.",
+          "log": [
+            "evidence/2234/logs/mutation/M1.build.log",
+            "evidence/2234/logs/mutation/M1.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M1.diff",
+          "killed_by": [
+            "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 8
+        },
+        {
+          "id": "M2",
+          "hunk": "H2",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1023,
+          "operator": "negate_condition",
+          "before": "                        if (!intMembers.ContainsKey(member.IntKey))",
+          "after": "                        if (!(!intMembers.ContainsKey(member.IntKey)))",
+          "log": [
+            "evidence/2234/logs/mutation/M2.build.log",
+            "evidence/2234/logs/mutation/M2.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M2.diff",
+          "killed_by": [
+            "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+            "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 8
+        },
+        {
+          "id": "M3",
+          "hunk": "H3",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1039,
+          "operator": "negate_condition",
+          "before": "                        if (!stringMembers.ContainsKey(member.StringKey))",
+          "after": "                        if (!(!stringMembers.ContainsKey(member.StringKey)))",
+          "log": [
+            "evidence/2234/logs/mutation/M3.build.log",
+            "evidence/2234/logs/mutation/M3.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M3.diff",
+          "killed_by": [
+            "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 8
+        },
+        {
+          "id": "M4",
+          "hunk": "H4",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1148,
+          "operator": "drop_statement",
+          "before": "                            continue; // The key kind does not match the other members; the diagnostic is reported, so skip this member.",
+          "after": "                            { } // The key kind does not match the other members; the diagnostic is reported, so skip this member.",
+          "log": [
+            "evidence/2234/logs/mutation/M4.build.log",
+            "evidence/2234/logs/mutation/M4.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M4.diff",
+          "killed_by": [],
+          "existing_tests_failed": [],
+          "outcome": "survived",
+          "tests_run": 8
+        },
+        {
+          "id": "M5",
+          "hunk": "H5",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1163,
+          "operator": "negate_condition",
+          "before": "                        if (!intMembers.ContainsKey(member.IntKey))",
+          "after": "                        if (!(!intMembers.ContainsKey(member.IntKey)))",
+          "log": [
+            "evidence/2234/logs/mutation/M5.build.log",
+            "evidence/2234/logs/mutation/M5.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M5.diff",
+          "killed_by": [],
+          "existing_tests_failed": [],
+          "outcome": "survived",
+          "tests_run": 8
+        },
+        {
+          "id": "M6",
+          "hunk": "H6",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1179,
+          "operator": "negate_condition",
+          "before": "                        if (!stringMembers.ContainsKey(member.StringKey))",
+          "after": "                        if (!(!stringMembers.ContainsKey(member.StringKey)))",
+          "log": [
+            "evidence/2234/logs/mutation/M6.build.log",
+            "evidence/2234/logs/mutation/M6.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M6.diff",
+          "killed_by": [],
+          "existing_tests_failed": [],
+          "outcome": "survived",
+          "tests_run": 8
+        },
+        {
+          "id": "M7",
+          "hunk": "H2",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1023,
+          "operator": "drop_guard",
+          "before": "                        if (!intMembers.ContainsKey(member.IntKey))",
+          "after": "                        if (true)",
+          "log": [
+            "evidence/2234/logs/mutation/M7.build.log",
+            "evidence/2234/logs/mutation/M7.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M7.diff",
+          "killed_by": [
+            "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+            "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 8
+        },
+        {
+          "id": "M8",
+          "hunk": "H3",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/TypeCollector.cs",
+          "line": 1039,
+          "operator": "drop_guard",
+          "before": "                        if (!stringMembers.ContainsKey(member.StringKey))",
+          "after": "                        if (true)",
+          "log": [
+            "evidence/2234/logs/mutation/M8.build.log",
+            "evidence/2234/logs/mutation/M8.test.1.log"
+          ],
+          "diff": "evidence/2234/logs/mutation/M8.diff",
+          "killed_by": [
+            "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure"
+          ],
+          "existing_tests_failed": [],
+          "outcome": "killed",
+          "tests_run": 8
+        }
+      ],
+      "kills_by_test": [
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported",
+          "killed": []
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateIntKeysAreReportedWithoutAnalyzerFailure",
+          "killed": [
+            "M2",
+            "M7"
+          ]
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateKeysAreReportedWithoutAnalyzerFailureForGeneratedTypes",
+          "killed": [
+            "M2",
+            "M7"
+          ]
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.DuplicateStringKeysAreReportedWithoutAnalyzerFailure",
+          "killed": [
+            "M3",
+            "M8"
+          ]
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported",
+          "killed": []
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported",
+          "killed": []
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.MixedKeyKindsAreReportedWithoutAnalyzerFailure",
+          "killed": [
+            "M1"
+          ]
+        },
+        {
+          "name": "SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed",
+          "killed": []
+        }
+      ],
+      "log": "evidence/2234/logs/mutation/"
+    },
+    {
+      "id": "craci.sbom",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580841815",
+        "job": "facts",
+        "job_id": "132405049035"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580841815",
+      "raw": "evidence/2234/ci/craci/sbom.cdx.json",
+      "spec_version": "1.7",
+      "serial": "urn:uuid:5dda6883-444d-4319-a554-c2d45b3d23ee",
+      "components": 0,
+      "by_purl_type": {},
+      "completeness": null,
+      "nuget_seen_by_craci": 0,
+      "nuget_in_our_graph": 242,
+      "nuget_seen_by_craci_not_in_our_graph": [],
+      "other_components": [],
+      "status": "pass",
+      "summary": "CRACI's job SBOM: 0 components (none); 0 NuGet, all in our restore graph (242 NuGet packages). CRACI has no NuGet source type, so the facts job reaches NuGet through a TLS connection rule, which CRACI does not inspect for packages: the NuGet graph is recorded by deps.delta, CRACI records the connections (craci.network)"
+    },
+    {
+      "id": "craci.network",
+      "tool": "CRACI API v1preview1 (https://api.craci.com)",
+      "source": {
+        "repo": "Zawaer/countersign",
+        "run_id": "43580841815",
+        "job": "facts",
+        "job_id": "132405049035"
+      },
+      "run_url": "https://github.com/Zawaer/countersign/actions/runs/43580841815",
+      "raw": "evidence/2234/ci/craci/network-trace.json.gz",
+      "schema_version": "1",
+      "job": {
+        "runId": "43580841815",
+        "jobId": "132405049035",
+        "runAttempt": 1,
+        "commitSha": "f2219f929d506fcf736f0c20d2c4afb3ae8e3fea",
+        "branch": "main",
+        "jobName": "facts (stage 1 deterministic checks for one change, .NET 8 + 9)",
+        "status": "SUCCESS"
+      },
+      "observations": 3706,
+      "dns_queries": 555,
+      "build_step_started": "2026-11-14T09:30:45",
+      "hosts": [
+        {
+          "host": "builds.dotnet.microsoft.com",
+          "connections": 17,
+          "bytes_sent": 13259,
+          "bytes_received": 468169443,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "api.nuget.org",
+          "connections": 87,
+          "bytes_sent": 298628,
+          "bytes_received": 283525271,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "github.com",
+          "connections": 2,
+          "bytes_sent": 7012,
+          "bytes_received": 19252351,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "codeload.github.com",
+          "connections": 3,
+          "bytes_sent": 4042,
+          "bytes_received": 4158749,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "pkgs.dev.azure.com",
+          "connections": 36,
+          "bytes_sent": 51483,
+          "bytes_received": 398685,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "ci.dot.net",
+          "connections": 8,
+          "bytes_sent": 10734,
+          "bytes_received": 43554,
+          "rules": [
+            "passthrough-tls-github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "results-receiver.actions.githubusercontent.com",
+          "connections": 44,
+          "bytes_sent": 0,
+          "bytes_received": 10106,
+          "rules": [
+            "github-actions-cache-results-receiver.actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "launch.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 1616,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 51,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "broker.actions.githubusercontent.com",
+          "connections": 2,
+          "bytes_sent": 0,
+          "bytes_received": 4,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "productionresultssa30.blob.core.windows.net",
+          "connections": 17,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "recorded-http-api.github.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "run-actions-3-azure-eastus.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        },
+        {
+          "host": "token.actions.githubusercontent.com",
+          "connections": 1,
+          "bytes_sent": 0,
+          "bytes_received": 0,
+          "rules": [
+            "github-actions-actions.githubusercontent.com"
+          ],
+          "denied": 0
+        }
+      ],
+      "proxy_violations": [],
+      "denied_certificate_status": [
+        {
+          "host": "ocsp.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 924,
+          "first_at": "2026-11-14T09:30:49.572442242Z",
+          "first_sequence": 285,
+          "example": "http://ocsp.digicert.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBTfIs%2BLjDtGwQ09XEB1Yeq%2BtX%2BBgQQU7NfjgtJxXWRM3y5nP%2Be6mK4cD08CEAc2N7ckVHzYR6z9KGYqXls%3D"
+        },
+        {
+          "host": "crl3.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 633,
+          "first_at": "2026-11-14T09:30:49.513222607Z",
+          "first_sequence": 256,
+          "example": "http://crl3.digicert.com/DigiCertTrustedG4RSA4096SHA256TimeStampingCA.crl"
+        },
+        {
+          "host": "crl4.digicert.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 291,
+          "first_at": "2026-11-14T09:30:49.607267462Z",
+          "first_sequence": 328,
+          "example": "http://crl4.digicert.com/DigiCertAssuredIDRootCA.crl"
+        },
+        {
+          "host": "s.symcb.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:49.571635093Z",
+          "first_sequence": 281,
+          "example": "http://s.symcb.com/universal-root.crl"
+        },
+        {
+          "host": "s.symcd.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:49.633606866Z",
+          "first_sequence": 342,
+          "example": "http://s.symcd.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQ%2FYHKj6JjF6UBieQioTYpFsuEriQQUtnf6aUhHn1MS1cLqBzJ2B9GXBxkCEHsFsdRJaFFE98mJ0pwZnRI%3D"
+        },
+        {
+          "host": "ts-crl.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:49.513367307Z",
+          "first_sequence": 257,
+          "example": "http://ts-crl.ws.symantec.com/sha256-tss-ca.crl"
+        },
+        {
+          "host": "ts-ocsp.ws.symantec.com",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 270,
+          "first_at": "2026-11-14T09:30:49.692693482Z",
+          "first_sequence": 392,
+          "example": "http://ts-ocsp.ws.symantec.com/MFEwTzBNMEswSTAJBgUrDgMCGgUABBQd11mpyHEqFCSocj4SCu93CBydHAQUr2PWyqNOhXLgp7xB8ymiOH%2BAdWICEHvU5a%2B6zAc%2FoQEjBCJBTRI%3D"
+        }
+      ],
+      "denied_during_toolchain_setup": [
+        {
+          "host": "aka.ms",
+          "protocol": "http",
+          "reason": "request does not match an allowed proxy policy rule",
+          "count": 3,
+          "first_at": "2026-11-14T09:30:20.683764189Z",
+          "first_sequence": 31,
+          "example": "https://aka.ms/dotnet/LTS/dotnet-runtime-linux-x64.tar.gz"
+        }
+      ],
+      "allowed_hosts_outside_declared_tls_patterns": [
+        "broker.actions.githubusercontent.com",
+        "launch.actions.githubusercontent.com",
+        "productionresultssa30.blob.core.windows.net",
+        "results-receiver.actions.githubusercontent.com",
+        "run-actions-3-azure-eastus.actions.githubusercontent.com",
+        "run.actions.githubusercontent.com",
+        "token.actions.githubusercontent.com"
+      ],
+      "status": "pass",
+      "summary": "220 connections to 13 hosts, 0 proxy violations: builds.dotnet.microsoft.com (468.2 MB), api.nuget.org (283.5 MB), github.com (19.3 MB), codeload.github.com (4.2 MB), pkgs.dev.azure.com (0.4 MB), ci.dot.net (44 kB); denied, not counted as the change's: 2928 certificate revocation lookups (CRL/OCSP over plain HTTP: crl3.digicert.com, crl4.digicert.com, ocsp.digicert.com, s.symcb.com, s.symcd.com, ts-crl.ws.symantec.com, ts-ocsp.ws.symantec.com), so package-signature revocation was not checked online; 3 request(s) during toolchain setup, before the change was built (aka.ms); 7 host(s) allowed by a preset or CRACI's own CI-service rule, not a listed TLS host (rules: github-actions-actions.githubusercontent.com, github-actions-cache-results-receiver.actions.githubusercontent.com, recorded-http-api.github.com)"
     }
   ],
   "not_run": [

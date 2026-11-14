@@ -12,7 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from . import __version__, decide as decide_mod, ledger, mandate as mandate_mod, trust, verify
-from .common import HUMAN_TIERS, Workspace, canonical, read_json, sha256_hex, write_json
+from .common import HUMAN_TIERS, TIERS, Workspace, canonical, read_json, sha256_hex, write_json
 
 SCHEMA = "countersign.pack/v1"
 
@@ -47,7 +47,9 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
     earlier = {n: [(pn, verify.verify_review(r, v)) for pn, r in ps] for n, ps in ws.earlier_reviews(change).items() if n in reviews}
     # Trust state, with the release gate applied to the reviewer versions that actually reviewed this change.
     versions = {n: {"model": r.get("model"), "prompt_version": r.get("prompt_version")} for n, r in raw_reviews.items()}
-    state = trust.derive(m, ledger.read(ws) if use_trust else [], versions)
+    # The ledger is verified first (hash chain, signatures): an invalid ledger means no trust event is used and every
+    # area is at ask, with "ledger invalid: <reason>" as the driver (red team L1).
+    state = trust.verified(ws, m, versions)[0] if use_trust else trust.derive(m, [], versions)
     adj_path = ws.adjudication_path(change)
     adj = read_json(adj_path) if adj_path else None
     if adj and adj.get("reviewer") != panel["adjudicator"]:
@@ -145,14 +147,7 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
         "carried_forward": d.get("carried_forward", []),
         "refuted_findings": d.get("refuted", []),
         "reproduced": d.get("reproduced", {}),
-        "signoff": {
-            "required": tier in HUMAN_TIERS,
-            "owner": d["owner"],
-            "allowed_decisions": ["reject", "request-changes"] if tier == "block" else ["accept", "reject", "request-changes"],
-            "command": f"countersign sign {change} --as {d['owner']} --decision <accept|reject|request-changes> --note \"...\"",
-            "statement": (f"I, {d['owner']}, have read what was checked and by whom, what was not checked and why, "
-                          "and the residual risk listed in this pack, and I own this decision."),
-        },
+        "signoff": _signoff(change, tier, d["owner"], verified),
     }
     # The reader's view (card, trust chains, panel, evidence with code excerpts). Deterministic, so it is hashed too.
     idx = _evidence_index(ws, facts, d, reqs, m["decision"]["code_line_tolerance"])
@@ -165,6 +160,55 @@ def build(ws: Workspace, change: str, use_trust: bool = True) -> dict:
     p["evidence_index"] = idx
     p["supply_chain"] = _supply_chain(facts, d)
     return p
+
+
+# --- sign-off: decision plus a verdict per verified finding ---------------------------------------------------
+
+FINDING_VERDICTS = ("accepted", "rejected", "unsure")
+_RATE = "<" + "|".join(FINDING_VERDICTS) + ">"
+
+
+def _signoff(change: str, tier: str, owner: str, verified: list[dict]) -> dict:
+    allowed = ["reject", "request-changes"] if tier == "block" else ["accept", "reject", "request-changes"]
+    base = f"countersign sign {change} --as {owner} --decision <{'|'.join(allowed)}> --note \"...\""
+    rate = [{"ref": f"{f['reviewer']}:{f['id']}", "reviewer": f["reviewer"], "severity": f["severity"], "title": f["title"],
+             "flag": f"--finding {f['reviewer']}:{f['id']}={_RATE}"} for f in verified]
+    return {
+        "required": tier in HUMAN_TIERS,
+        "owner": owner,
+        "allowed_decisions": allowed,
+        "command": base,
+        # the same command with one --finding flag per verified finding, so the owner rates them in one go
+        "findings": rate,
+        "command_with_findings": " \\\n  ".join([base, *(r["flag"] for r in rate)]),
+        "statement": (f"I, {owner}, have read what was checked and by whom, what was not checked and why, "
+                      "and the residual risk listed in this pack, and I own this decision."),
+    }
+
+
+def rate_findings(p: dict, specs: list[str] | None) -> list[dict]:
+    """The owner's verdict on every verified finding of pack `p`, from `--finding <ref>=accepted|rejected|unsure[:reason]`
+    flags. Findings without a flag are recorded as `unrated`. Raises SystemExit on an unknown ref, a repeated ref or an
+    unknown verdict, so a typo never silently becomes `unrated`."""
+    listed = {f"{f['reviewer']}:{f['id']}": f for f in p["findings"]}
+    given: dict[str, tuple[str, str]] = {}
+    for spec in specs or []:
+        ref, eq, rest = spec.partition("=")
+        verdict, _, reason = rest.partition(":")
+        ref, verdict, reason = ref.strip(), verdict.strip(), reason.strip()
+        if not eq or not ref:
+            raise SystemExit(f"--finding {spec!r}: expected <reviewer:id>=<{'|'.join(FINDING_VERDICTS)}>[:reason]")
+        if ref not in listed:
+            raise SystemExit(f"--finding {spec!r}: {ref} is not a verified finding of {p['change']} "
+                             f"(verified: {', '.join(listed) or 'none'})")
+        if verdict not in FINDING_VERDICTS:
+            raise SystemExit(f"--finding {spec!r}: verdict must be one of {', '.join(FINDING_VERDICTS)}")
+        if ref in given:
+            raise SystemExit(f"--finding {ref} given twice")
+        given[ref] = (verdict, reason)
+    return [{"ref": ref, "reviewer": f["reviewer"], "severity": f["severity"],
+             "verdict": given.get(ref, ("unrated", ""))[0], "reason": given.get(ref, ("unrated", ""))[1]}
+            for ref, f in listed.items()]
 
 
 # --- supply chain (from the build) --------------------------------------------------------
@@ -371,6 +415,17 @@ def _test_runs(facts: dict, name: str) -> list[dict]:
     return runs
 
 
+def _mutants_killed(facts: dict, name: str) -> list[str] | None:
+    """The tests.mutation mutants this test killed, as `M3 (TypeCollector.cs:1446 drop_guard)`; None if the test was
+    not run against the mutants."""
+    c = next((c for c in facts.get("checks", []) if c["id"] == "tests.mutation"), None)
+    t = next((t for t in (c or {}).get("kills_by_test", []) if t.get("name") == name), None)
+    if t is None:
+        return None
+    ms = {m["id"]: m for m in c.get("mutants", [])}
+    return [f"{k} ({ms[k]['file'].rsplit('/', 1)[-1]}:{ms[k]['line']} {ms[k]['operator']})" if k in ms else k for k in t.get("killed", [])]
+
+
 def _without_fix(runs: list[dict]) -> str | None:
     """failed: the test fails without the fix (it tests the change). passed: it passes anyway (held before)."""
     outs = {r["outcome"] for r in runs if r["without_fix"]}
@@ -394,6 +449,9 @@ def _evidence_index(ws: Workspace, facts: dict, d: dict, reqs: dict, tolerance: 
             elif kind == "test":
                 rec["runs"] = _test_runs(facts, str(e.get("name")))
                 rec["without_fix"] = _without_fix(rec["runs"])
+                kills = _mutants_killed(facts, str(e.get("name")))
+                if kills is not None:
+                    rec["mutants_killed"] = kills
             elif kind == "check" and e.get("id") in checks:
                 c = checks[e["id"]]
                 rec["check_result"] = {"status": c["status"], "summary": c.get("summary"), "tool": c.get("tool"),
@@ -463,6 +521,8 @@ def clause_why(c: dict, n_reviewers: int) -> str:
         parts.append(f"no verdict from {_names(missing)}" + (f" ({len(v)} of {n_reviewers} reviewers answered)" if v else ""))
     if "adjudicator_dispute" in codes:
         parts.append("the adjudicator disputes it")
+    if "tests_kill_no_mutant" in codes:
+        parts.append(codes["tests_kill_no_mutant"]["detail"])
     return (parts[0][:1].upper() + parts[0][1:] + "".join("; " + p for p in parts[1:])) if parts else "Refused"
 
 
@@ -477,6 +537,7 @@ def _settle(c: dict, chain_adj: dict | None) -> list[str]:
                     "not_met": f"A fix, or evidence that refutes {_name(name)}'s objection",
                     "cannot_determine": f"The evidence {_name(name)} says it lacked (see its basis above)",
                     "thin_evidence": f"{_name(name)} citing evidence the engine can verify",
+                    "tests_kill_no_mutant": "A test that fails on a mutant of the lines this clause depends on (tests.mutation)",
                     }.get(code, ""))
     return [x for x in dict.fromkeys(out) if x]
 
@@ -491,6 +552,12 @@ def _tokens(s: str) -> set[str]:
     return {w.rstrip("s") for w in words if len(w) > 3 and w not in _STOP}
 
 
+def _out_of_scope(r: dict) -> bool:
+    """decide.classify_refusal marks a refusal out of scope when it names no clause, is not blocking and touches no
+    mandated check or sensitive term. The pack folds those into one line so the refusals that route stand out."""
+    return str(r.get("route_reason", "")).startswith("out of scope")
+
+
 def _dedupe_refusals(refusals: list[dict]) -> list[dict]:
     groups: list[dict] = []
     for r in refusals:
@@ -498,10 +565,11 @@ def _dedupe_refusals(refusals: list[dict]) -> list[dict]:
         g = next((g for g in groups if t and g["_t"] and len(t & g["_t"]) / min(len(t), len(g["_t"])) >= 0.6), None)
         if g is None:
             groups.append({"topic": r["topic"], "why": r["reason"], "raised_by": [r["reviewer"]],
-                           "who_should_decide": [r["who_should_decide"]], "_t": t})
+                           "who_should_decide": [r["who_should_decide"]], "peripheral": _out_of_scope(r), "_t": t})
         else:
             g["raised_by"] = list(dict.fromkeys(g["raised_by"] + [r["reviewer"]]))
             g["who_should_decide"] = list(dict.fromkeys(g["who_should_decide"] + [r["who_should_decide"]]))
+            g["peripheral"] = g["peripheral"] and _out_of_scope(r)
             g["_t"] |= t
     for i, g in enumerate(groups, 1):
         g.pop("_t")
@@ -625,8 +693,13 @@ def _panel(p: dict, d: dict, reviews: dict) -> dict:
     return {"rows": rows, "callouts": list(dict.fromkeys(callouts)), "adjudicator": p["reviewer_panel"]["adjudicator"]}
 
 
-def _card(p: dict, d: dict, trust_rows: list[dict], refusal_groups: list[dict]) -> dict:
+def _card(p: dict, d: dict, trust_rows: list[dict], all_refusals: list[dict]) -> dict:
     n_rev = len(p["reviewer_panel"]["reviewers"])
+    # Refusals that route (name a clause, a mandated check or a sensitive term) stay on the first screen; out-of-scope
+    # ones fold into one line. A pack whose only refusals are out of scope still names them (they set its tier).
+    refusal_groups = [g for g in all_refusals if not g["peripheral"]]
+    peripheral = [g for g in all_refusals if g["peripheral"]]
+    lead_refusals = refusal_groups or peripheral
     # 1-3 reasons that set the tier, one per kind of driver, in words.
     def reasons_from(drivers: list[dict]) -> list[dict]:
         groups: dict[str, list[dict]] = {}
@@ -656,8 +729,8 @@ def _card(p: dict, d: dict, trust_rows: list[dict], refusal_groups: list[dict]) 
                 reasons.append({"text": f"The adjudicator ({_name(p['adjudication']['reviewer'])}) found the evidence on {', '.join(w['id'] for w in ws_)} disputed",
                                 "link": "#panel"})
             elif source == "reviewer refusal":
-                reasons.append({"text": f"The AI declined to decide {_plural(len(refusal_groups), 'question')}, e.g. {refusal_groups[0]['topic']}"
-                                if refusal_groups else "A reviewer declined to decide a topic", "link": "#refused"})
+                reasons.append({"text": f"The AI declined to decide {_plural(len(lead_refusals), 'question')}, e.g. {lead_refusals[0]['topic']}"
+                                if lead_refusals else "A reviewer declined to decide a topic", "link": "#refused"})
             elif source == "trust cap":
                 reasons += [{"text": f"The AI may clear {w['id']} only up to {w['tier']}: {w['why'].split('(', 1)[-1].rstrip(')')}", "link": "#areas"} for w in ws_]
             elif source == "risk score":
@@ -681,35 +754,46 @@ def _card(p: dict, d: dict, trust_rows: list[dict], refusal_groups: list[dict]) 
     not_checked = [{"id": x["id"], "reason": x["reason"]} for x in p["not_checked"] if x["source"] != "mandate known gap"]
     gaps = [x["id"] for x in p["not_checked"] if x["source"] == "mandate known gap"]
 
+    # Residual risk: the items behind a driver that sets the tier stay on the first screen; the rest fold under a count.
+    floor = min(TIERS.index(p["tier"]), TIERS.index("ask"))
+    driving = {(w["source"], w["id"]) for w in p["drivers"] if TIERS.index(w["tier"]) >= floor}
+    def drives(source: str, *ids: str) -> bool:
+        return any((source, i) in driving for i in ids) if ids else any(src == source for src, _ in driving)
+
     residual = []
+    def add(text: str, link: str, drive: bool) -> None:
+        residual.append({"text": text, "link": link, "drives": drive})
     for f in sev:
         if f["severity"] in ("blocker", "major"):
-            residual.append({"text": f"Open {f['severity']} finding: {f['title']}", "link": f"#f-{f['reviewer']}-{f['id']}"})
+            add(f"Open {f['severity']} finding: {f['title']}", f"#f-{f['reviewer']}-{f['id']}", drives("verified finding", f"{f['reviewer']}:{f['id']}"))
     unproven = [t for t in trust_rows if t["status"] == "refused"]
     if unproven:
-        residual.append({"text": f"Not proven by the AI: {', '.join(t['id'] for t in unproven)}. Signing means you judge them yourself.",
-                         "link": f"#chain-{unproven[0]['id']}"})
+        add(f"Not proven by the AI: {', '.join(t['id'] for t in unproven)}. Signing means you judge them yourself.",
+            f"#chain-{unproven[0]['id']}", drives("refused clause", *(t["id"] for t in unproven)))
     held = [t for t in trust_rows if t["status"] == "held_before"]
     if held:
-        residual.append({"text": f"{', '.join(t['id'] for t in held)} already held before this change: met, but not achieved by it.",
-                         "link": f"#chain-{held[0]['id']}"})
-    if refusal_groups:
-        residual.append({"text": f"{_plural(len(refusal_groups), 'question')} the AI declined to decide (listed above) are yours.", "link": "#refused"})
+        add(f"{', '.join(t['id'] for t in held)} already held before this change: met, but not achieved by it.",
+            f"#chain-{held[0]['id']}", drives("held before", *(t["id"] for t in held)))
+    if lead_refusals:
+        add(f"{_plural(len(lead_refusals), 'question')} the AI declined to decide (listed above) are yours.", "#refused", drives("reviewer refusal"))
+    if refusal_groups and peripheral:
+        add(f"{_plural(len(peripheral), 'peripheral refusal')} (out of scope for this change) are yours too.", "#refused-peripheral", False)
     for f in p["rejected_claims"]:
         if f["severity"] in ("blocker", "major"):
-            residual.append({"text": f"Rejected for lack of evidence, not disproven: {f['title']} ({f['reviewer']}:{f['id']})",
-                             "link": f"#f-{f['reviewer']}-{f['id']}"})
+            add(f"Rejected for lack of evidence, not disproven: {f['title']} ({f['reviewer']}:{f['id']})", f"#f-{f['reviewer']}-{f['id']}", False)
     if not_checked:
-        residual.append({"text": "Not run: " + ", ".join(x["id"] for x in not_checked), "link": "#not-checked"})
+        add("Not run: " + ", ".join(x["id"] for x in not_checked), "#not-checked", drives("mandate rule", "mandated-check-missing"))
     for a in p["areas"]:
         if a["cap"] != a["max_ai_tier"]:
-            residual.append({"text": f"Area {a['name']} is on probation ({a['cap_reason']})", "link": "#areas"})
+            add(f"Area {a['name']} is on probation ({a['cap_reason']})", "#areas", drives("trust cap", a["name"]))
     for x in p["reviewer_panel"]["excluded"]:
-        residual.append({"text": f"{_name(x['name'])} did not read this change: {x['reason']}", "link": "#panel"})
+        add(f"{_name(x['name'])} did not read this change: {x['reason']}", "#panel", False)
     if p["disputes"] and not p.get("adjudication"):
-        residual.append({"text": f"{_plural(len(p['disputes']), 'disputed item')} not adjudicated", "link": "#panel"})
+        add(f"{_plural(len(p['disputes']), 'disputed item')} not adjudicated", "#panel", False)
     if gaps:
-        residual.append({"text": "Standing pipeline gaps: " + ", ".join(gaps), "link": "#not-checked"})
+        add("Standing pipeline gaps: " + ", ".join(gaps), "#not-checked", False)
+    if residual and not any(r["drives"] for r in residual):
+        residual[0]["drives"] = True  # e.g. a block by a size rule: still lead with the first risk
 
     s = p["signoff"]
     return {
@@ -717,10 +801,10 @@ def _card(p: dict, d: dict, trust_rows: list[dict], refusal_groups: list[dict]) 
         "reasons": shown, "more_drivers": len(p["drivers"]),
         "trace": [{"id": t["id"], "status": t["status"], "label": t["label"], "why": t["why"], "anchor": f"chain-{t['id']}"} for t in trust_rows],
         "found": found, "found_total": len(p["findings"]), "rejected_total": len(p["rejected_claims"]),
-        "refused": refusal_groups, "refused_clauses": [t["id"] for t in trust_rows if t["status"] == "refused"],
+        "refused": lead_refusals, "refused_peripheral": peripheral if refusal_groups else [], "refused_clauses": [t["id"] for t in trust_rows if t["status"] == "refused"],
         "not_checked": not_checked, "known_gaps": gaps,
-        "residual": residual,
+        "residual": [r for r in residual if r["drives"]], "residual_more": [r for r in residual if not r["drives"]],
         "sign": {"owner": s["owner"], "required": s["required"], "decisions": s["allowed_decisions"], "statement": s["statement"],
-                 "command": s["command"]},
+                 "command": s["command"], "findings": s["findings"], "command_with_findings": s["command_with_findings"]},
         "reviewers": n_rev,
     }
