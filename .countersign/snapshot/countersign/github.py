@@ -197,11 +197,18 @@ def _run_url() -> str | None:
 # --- the sticky comment --------------------------------------------------------------------------------------
 
 def render(p: dict, pack_sha: str, live: dict, stale: list[str], signoff: dict | None, status: tuple[str, str],
-           cfg: dict, pin: str, gh_repo: str, number: int) -> str:
+           cfg: dict, pin: str, gh_repo: str, number: int, entries: list[dict] | None = None) -> str:
+    """The sticky comment: the status line, the short card (its sign-off line read from `entries`, the same ledger the
+    status comes from), then everything else folded: the recorded-reviews notice, the table, how to sign, the pack."""
     owner, login = p["owner"], cfg["owners"].get(p["owner"])
     who = f"{owner} (@{login})" if login else f"{owner} (no GitHub login mapped in .countersign/config.yaml)"
     sig = p["mandate"].get("signature") or {}
-    lines = [MARKER, f"## Countersign · {status[1]}", ""]
+    entries = [] if entries is None else entries
+    story = pack_mod.md_story(p, entries)
+    lines = [MARKER, f"## Countersign · {status[1]}", "", *story[2:],  # the card without its own heading
+             "<details><summary><b>How this was checked</b>: recorded reviews, tier, mandate, evidence match, "
+             "countersignature" + (", how to sign" if not signoff and not stale and p["tier"] in HUMAN_TIERS else "")
+             + "</summary>", ""]
     if cfg.get("recorded"):
         lines += ["> **Recorded reviews; a live run calls the reviewers with the same prompt** "
                   "(`prompts/review-v1.md`). This demo replays the reviews, the adjudication and the build/test results "
@@ -240,8 +247,7 @@ def render(p: dict, pack_sha: str, live: dict, stale: list[str], signoff: dict |
                   f"the commenter is @{login or '?'}, appends it to the `{cfg['ledger_branch']}` branch and sets "
                   f"`{cfg['status_context']}`. A plain `/countersign accept` without the signed block changes nothing. "
                   "Merging `main` requires that status to pass.", ""]
-    lines += ["<details open><summary><b>Evidence pack</b> (pack.md: what was checked and by whom, what was refused and why, "
-              "what was not checked, residual risk)</summary>", "", pack_mod.to_markdown(p), "", "</details>"]
+    lines += ["</details>", "", pack_mod.to_markdown(p, entries, story=False)]
     body = "\n".join(lines)
     return body if len(body) < 65000 else body[:64000] + "\n\n_(truncated: the full pack is in the workflow artifact)_\n</details>"
 
@@ -275,7 +281,9 @@ def _publish(a, gh: GitHub, cfg: dict, pr: dict, ws, p, pack_sha, live, stale, p
     signoff = None if (stale or problems) else latest_signoff(ws, p["change"], pack_sha)
     st = status_for(p, stale, signoff, problems)
     pin = Path(a.snapshot, "PINNED").read_text().strip() if Path(a.snapshot, "PINNED").exists() else "unknown"
-    body = render(p, pack_sha, live, stale, signoff, st, cfg, pin, gh.repo, pr["number"])
+    # the card's sign-off line reads the same ledger as the status (none when the evidence is stale or the ledger bad)
+    entries = [] if (stale or problems) else ledger.read(ws)
+    body = render(p, pack_sha, live, stale, signoff, st, cfg, pin, gh.repo, pr["number"], entries)
     gh.status(pr["head_sha"], st[0], st[1], cfg["status_context"], _run_url())
     url = gh.upsert_sticky(pr["number"], body)
     gh.set_tier_label(pr["number"], p["tier"])

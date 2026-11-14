@@ -172,9 +172,8 @@ def _trace_why(p: dict, t: dict) -> tuple[str, str]:
 
 
 def _ruling_line(p: dict, r: dict) -> str:
-    """One plain line per adjudicated dispute, counted from the ruling's own supported/unsupported claims:
-    `Gemini on N1: Claude's objection is supported; backs 2 of 3 claims for Claude's 'not met', 2 of 4 for 'met'`.
-    The full ruling is folded under it."""
+    """One plain line per adjudicated dispute: `Gemini on N1: Claude's objection is supported` when the ruling says so in
+    words, else counted from its own supported/unsupported claims. The full ruling is folded under it."""
     adj = _name(p["adjudication"]["reviewer"])
     claims = [(x.get("reviewer"), True) for x in r.get("supported", [])] + [(x.get("reviewer"), False) for x in r.get("unsupported", [])]
 
@@ -199,8 +198,8 @@ def _ruling_line(p: dict, r: dict) -> str:
         k, n = tally(yes)
         parts.append(f"{k} of {n} for 'met'")
     said = _objection(p, dispute) if no else None
-    if said and parts:
-        return f"{adj} on {_short_id(dispute)}: {said.split(': ', 1)[-1] if said.startswith(adj + ':') else said}; backs " + ", ".join(parts)
+    if said:  # the ruling in words; the per-side claim counts read as a split, so they stay in the folded ruling
+        return f"{adj} on {_short_id(dispute)}: {said.split(': ', 1)[-1] if said.startswith(adj + ':') else said}"
     return f"{adj} on {_short_id(dispute)}: " + (("backs " + ", ".join(parts)) if parts else "see the full ruling")
 
 
@@ -270,7 +269,8 @@ def _ledger_paths() -> list[Path]:
 
 
 def _signoff(p: dict, ledger: list[dict] | None = None) -> dict | None:
-    """The newest ledger sign-off for this change: {signer, decision, ts, current} (current: it covers this exact pack)."""
+    """The newest ledger sign-off for this change: {signer, decision, ts, current} (current: it covers this exact pack).
+    `ledger`: the entries to read (None: the workspace's ledger/ledger.jsonl)."""
     # common.canonical + sha256_hex, inlined: site/build.py imports this module without PyYAML
     want = hashlib.sha256(json.dumps(p, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     if ledger is None:
@@ -292,13 +292,37 @@ def _signoff(p: dict, ledger: list[dict] | None = None) -> dict | None:
     return best
 
 
+_FAILED = {"tests.execution_fail_without_fix": "the new runtime tests pass without the fix",
+           "tests.fail_without_fix": "the new tests pass without the fix",
+           "public_api": "it adds public API", "solution_membership": "a new project is not in the solution",
+           "injection_scan": "it hides instructions to the AI", "deps.delta": "it adds a vulnerable dependency",
+           "build.egress": "the build reached a blocked host", "craci.network": "the build broke the network policy"}
+
+
+def _check_failed(t: dict) -> str:
+    """A failing check in a few plain words, from its id and summary: `3 of 8 planted mutants survive`."""
+    summ = t.get("summary") or ""
+    if t["id"] == "tests.mutation":
+        m = re.match(r"(\d+) mutants? of the changed source lines: \d+ killed, (\d+) survived", summ)
+        if m:
+            return f"{m.group(2)} of {m.group(1)} planted mutants survive"
+    if t["id"] == "analyzers":
+        m = re.match(r"(\d+) new warnings?", summ)
+        if m:
+            return f"{m.group(1)} new analyzer warning{'' if m.group(1) == '1' else 's'}"
+    return _FAILED.get(t["id"], f"{t['id']} fails")
+
+
 def _marks(p: dict, so: dict | None) -> list[tuple[str, str, str]]:
     """Three (class, glyph, words): checks, reviewers, signature."""
     tools = [t for t in p["checked_by"]["tools"] if t.get("status") in ("pass", "fail")]
     bad = [t["id"] for t in tools if t["status"] == "fail"]
     core = [t for t in tools if t["id"] in ("build", "tests.full_suite")]
     if bad and core and all(t["status"] == "pass" for t in core):
-        out = [("warn", "!", f"Builds, tests pass; {len(bad)} other check{'s' if len(bad) != 1 else ''} fail")]
+        named = [_check_failed(t) for t in tools if t["status"] == "fail"]
+        more = len(named) - 2
+        out = [("warn", "!", "Builds, tests pass; but " + (" and ".join(named) if more <= 0
+                else f"{', '.join(named[:2])} and {more} more check{'s' if more != 1 else ''} fail"))]
     else:
         out = [("bad", "✕", f"{len(bad)} of {len(tools)} checks fail") if bad else ("ok", "✓", f"All {len(tools)} checks pass")]
     major = [f for f in p.get("findings", []) if f.get("status") == "verified" and f.get("severity") in ("blocker", "major")]
@@ -320,7 +344,7 @@ def _marks(p: dict, so: dict | None) -> list[tuple[str, str, str]]:
     elif not (p.get("signoff") or {}).get("required", True):
         out.append(("ok", "✓", f"No signature needed: {owner} is told"))
     else:
-        out.append(("warn", "…", f"Awaiting {owner}"))
+        out.append(("warn", "…", f"Awaiting {owner}'s countersignature"))
     return out
 
 
@@ -493,14 +517,22 @@ def _md_trust(p: dict) -> list[str]:
     for t in p["trust"]:
         out += [f"<a id=\"{'chain-' + t['id']}\"></a>", f"#### {t['id']}: **{t['label'].upper()}**", "", f"> {t['text']}", ""]
         if t["status"] in ("proven", "held_before"):
+            held = t["status"] == "held_before"
+            if held:
+                out.append(f"- **Held before:** {t['why']}")
             out.append("- **Checks passed:** " + (", ".join(f"`{x['id']}` {x['status']}" for x in t["checks"]) or "none mandated"))
-            if t["tests_fail_without_fix"]:
-                out.append("- **Fails without the fix:** " + ", ".join(
-                    _md_ev_link(x["ref"], x["name"].rsplit(".", 1)[-1]) if x["ref"] else f"`{x['name'].rsplit('.', 1)[-1]}`" for x in t["tests_fail_without_fix"]))
+            fails = ", ".join(_md_ev_link(x["ref"], x["name"].rsplit(".", 1)[-1]) if x["ref"] else f"`{x['name'].rsplit('.', 1)[-1]}`"
+                              for x in t["tests_fail_without_fix"])
+            passes = ", ".join(_md_ev_link(x["ref"], x["name"].rsplit(".", 1)[-1]) for x in t["tests_pass_without_fix"])
+            if held:
+                if passes:
+                    out.append("- **The clause's own tests pass without the fix:** " + passes)
+                if fails:
+                    out.append("- **Other cited tests fail without the fix** (not this clause's own tests): " + fails)
             else:
-                out.append("- **Fails without the fix:** no cited test does")
-            if t["tests_pass_without_fix"]:
-                out.append("- **Passes without the fix too:** " + ", ".join(_md_ev_link(x["ref"], x["name"].rsplit(".", 1)[-1]) for x in t["tests_pass_without_fix"]))
+                out.append("- **Fails without the fix:** " + (fails or "no cited test does"))
+                if passes:
+                    out.append("- **Passes without the fix too:** " + passes)
             for r in t["reviewers"]:
                 out.append(f"- **{_name(r['reviewer'])}** says {r['verdict'].replace('_', ' ')} ({r['verified']}/{r['cited']} citations verified): "
                            + " ".join(_md_ev_link(x, ev[x]["label"]) for x in r["refs"] if x in ev))
@@ -675,11 +707,17 @@ def _md_story(p: dict, so: dict | None) -> list[str]:
             f"**{_change_line(p)}**", "", f"**Why:** {_why(p)}", "", *marks, ""]
 
 
-def to_markdown(p: dict, signoff: dict | None = None) -> str:
-    """The short card in plain GitHub Markdown, everything else in one <details>. Shrinks to stay under a PR comment's limit."""
-    so = signoff if signoff is not None else _signoff(p)
+def md_story(p: dict, ledger: list[dict] | None = None) -> list[str]:
+    """The short card alone. `ledger`: the entries whose sign-off the card reports (default: the workspace ledger), so a
+    caller with its own ledger (the PR check reads the repo's ledger branch) gets a card that agrees with its status."""
+    return _md_story(view(p), _signoff(p, ledger))
+
+
+def to_markdown(p: dict, ledger: list[dict] | None = None, story: bool = True) -> str:
+    """The short card in plain GitHub Markdown, everything else in one <details>. Shrinks to stay under a PR comment's limit.
+    `ledger` as in md_story; story=False leaves the card out (the PR comment puts it first itself)."""
+    head = md_story(p, ledger) if story else []
     p = view(p)
-    head = _md_story(p, so)
     fold = ["<details><summary><b>Evidence</b>: requirements, findings, refusals, checks, risk, how to sign</summary>", ""]
     card = _md_card(p) + _md_supply(p)
     for parts in ((_md_trust(p), _md_panel(p), _md_evidence(p), _md_full(p)),
@@ -918,12 +956,18 @@ def _html_trust(p: dict) -> str:
             revs = "".join(f'<li><b>{_e(_name(r["reviewer"]))}</b> said <span class="v-{_e(r["verdict"])}">{_e(r["verdict"].replace("_", " "))}</span> '
                            f'<span class="mut sm">({r["verified"]} of {r["cited"]} citations verified)</span>'
                            f'<div class="chips">{_ev_chips(r["refs"], ev)}</div></li>' for r in t["reviewers"])
-            body = (f'<ol class="chain"><li><b>Checks that passed</b><ul class="sm">{checks}</ul></li>'
-                    f'<li><b>Tests that fail without the fix</b><div class="chips">{fails}</div>'
-                    + (f'<div class="sm mut">Pass without the fix too (they show existing behaviour):</div><div class="chips">{passes}</div>' if passes else "")
-                    + f'</li><li><b>Reviewers who agreed, with verified citations</b><ul>{revs}</ul></li></ol>')
-            if t["status"] == "held_before":
-                body += f'<p class="sm"><b>Held before:</b> {_e(t["why"])}</p>'
+            if t["status"] == "held_before":  # the clause's own tests pass without the fix: say that first, name them
+                body = (f'<p class="sm"><b>Held before:</b> {_e(t["why"])}</p>'
+                        f'<ol class="chain"><li><b>Checks that passed</b><ul class="sm">{checks}</ul></li>'
+                        + (f'<li><b>The clause\'s own tests pass without the fix</b><div class="chips">{passes}</div></li>' if passes else "")
+                        + (f'<li><b>Other cited tests fail without the fix</b> <span class="sm mut">(not this clause\'s own tests)</span>'
+                           f'<div class="chips">{fails}</div></li>' if t["tests_fail_without_fix"] else "")
+                        + f'<li><b>Reviewers who agreed, with verified citations</b><ul>{revs}</ul></li></ol>')
+            else:
+                body = (f'<ol class="chain"><li><b>Checks that passed</b><ul class="sm">{checks}</ul></li>'
+                        f'<li><b>Tests that fail without the fix</b><div class="chips">{fails}</div>'
+                        + (f'<div class="sm mut">Pass without the fix too (they show existing behaviour):</div><div class="chips">{passes}</div>' if passes else "")
+                        + f'</li><li><b>Reviewers who agreed, with verified citations</b><ul>{revs}</ul></li></ol>')
         else:
             revs = "".join(f'<li><b>{_e(_name(r["reviewer"]))}</b>: <span class="v-{_e(r["verdict"])}">{_e(r["verdict"].replace("_", " "))}</span> '
                            f'<span class="mut sm">({r["verified"]}/{r["cited"]} verified)</span><div class="sm">{_e(r["basis"])}</div>'
@@ -1123,8 +1167,8 @@ def _html_story(p: dict, so: dict | None) -> str:
             f'<ul class="marks" aria-label="Checks, reviewers, signature">{marks}</ul></section>')
 
 
-def to_html(p: dict, signoff: dict | None = None) -> str:
-    so = signoff if signoff is not None else _signoff(p)
+def to_html(p: dict, ledger: list[dict] | None = None) -> str:
+    so = _signoff(p, ledger)
     p = view(p)
     ev = p["evidence_index"]
     c = _html_parts(p)
