@@ -8,11 +8,14 @@ the evidence (findings, code excerpts, test runs, checks); and, folded, the full
 
 from __future__ import annotations
 
+import hashlib
 import html
+import json
 import re
 from pathlib import Path
 
-from .common import now_iso
+
+TAGLINE = "AI reviews code; a named human signs."  # same line as the site header (site/scene.py)
 
 STATUS = {  # label -> (css class, glyph, what it means)
     "proven": ("proven", "\u2713", "every reviewer said met with verified evidence and the clause's checks pass"),
@@ -44,6 +47,51 @@ def _ruling_text(r: dict) -> str:
 
 def _rulings(p: dict) -> list[dict]:
     return [r for r in (p.get("adjudication") or {}).get("rulings", []) if not r.get("stale")]
+
+
+ADJ_PHRASE = "the adjudicator disputes it"  # pack.json's generic wording; the render says what the ruling found
+
+
+def _objection(p: dict, cid: str) -> str | None:
+    """What the adjudicator's ruling on a clause says about the 'not met' side, in words:
+    `Gemini: Claude's objection is supported` when it backs a claim by a reviewer who said not met."""
+    r = next((x for x in _rulings(p) if str(x.get("dispute")) == cid), None)
+    if not r:
+        return None
+    adj = _name(p["adjudication"]["reviewer"])
+    tr = next((x for x in p.get("trust", []) if x["id"] == cid), None)
+    no = [v["reviewer"] for v in (tr or {}).get("reviewers", []) if v["verdict"] != "met"]
+    if not no:
+        return f"{adj} ruled on it (advisory)"
+    backed = [n for n in no if any(x.get("reviewer") == n for x in r.get("supported", []))]
+    who = " and ".join(_name(n) for n in (backed or no))
+    return (f"{adj}: {who}'s objection is supported" if backed else f"{adj} does not back {who}'s objection")
+
+
+def view(p: dict) -> dict:
+    """The pack as rendered: a copy where the generic `the adjudicator disputes it` names the ruling's outcome.
+    Render only: pack.json (what the owner signs) is never changed."""
+    if not _rulings(p) or ADJ_PHRASE not in json.dumps(p):
+        return p
+
+    def fix(text: str, cid: str | None) -> str:
+        out, pos = "", 0
+        for m in re.finditer(re.escape(ADJ_PHRASE), text):
+            ids = re.findall(r"REQ-[A-Za-z0-9]+-[A-Za-z0-9]+", text[:m.start()])
+            said = _objection(p, ids[-1] if ids else cid or "")
+            out += text[pos:m.start()] + (said or ADJ_PHRASE)
+            pos = m.end()
+        return out + text[pos:]
+
+    def walk(o, cid):
+        if isinstance(o, dict):
+            here = o.get("id") if str(o.get("id", "")).startswith("REQ-") else cid
+            return {k: walk(v, here) for k, v in o.items()}
+        if isinstance(o, list):
+            return [walk(v, cid) for v in o]
+        return fix(o, cid) if isinstance(o, str) and ADJ_PHRASE in o else o
+
+    return walk(p, None)
 
 
 # --- first-screen shortening (render only: the full text is always one tap away, in a fold) -------------------------
@@ -125,7 +173,8 @@ def _trace_why(p: dict, t: dict) -> tuple[str, str]:
 
 def _ruling_line(p: dict, r: dict) -> str:
     """One plain line per adjudicated dispute, counted from the ruling's own supported/unsupported claims:
-    `Gemini on N1: backs 2 of 3 claims for Claude's 'not met', 2 of 4 for 'met'`. The full ruling is folded under it."""
+    `Gemini on N1: Claude's objection is supported; backs 2 of 3 claims for Claude's 'not met', 2 of 4 for 'met'`.
+    The full ruling is folded under it."""
     adj = _name(p["adjudication"]["reviewer"])
     claims = [(x.get("reviewer"), True) for x in r.get("supported", [])] + [(x.get("reviewer"), False) for x in r.get("unsupported", [])]
 
@@ -149,6 +198,9 @@ def _ruling_line(p: dict, r: dict) -> str:
     if yes:
         k, n = tally(yes)
         parts.append(f"{k} of {n} for 'met'")
+    said = _objection(p, dispute) if no else None
+    if said and parts:
+        return f"{adj} on {_short_id(dispute)}: {said.split(': ', 1)[-1] if said.startswith(adj + ':') else said}; backs " + ", ".join(parts)
     return f"{adj} on {_short_id(dispute)}: " + (("backs " + ", ".join(parts)) if parts else "see the full ruling")
 
 
@@ -175,9 +227,112 @@ def _more_risks(c: dict) -> str:
     return f"{n} more risk{'' if n == 1 else 's'} that do not set the tier"
 
 
+# --- the story card: the first screen of pack.html and pack.md (render only) --------------------------------------
+# One verdict, the change in one line, one short reason and three marks (checks, reviewers, signature). Everything
+# else sits behind one "Evidence" fold. The signature line comes from the signed ledger: a sign-off counts for this
+# pack only if its pack_sha256 is this pack's hash (a sign-off of an earlier version says so).
+
+WHY_WORDS = 12
+_WHY_CUTS = (" about ", " because ", " when ", " for ", " in ", " on ", " with ")
+
+
+def _words(s: str) -> int:
+    return len(s.split())
+
+
+def _why(p: dict) -> str:
+    """The deciding reason in at most WHY_WORDS words, cut at a natural break of the pack's own text."""
+    reasons = (p.get("card") or {}).get("reasons") or []
+    if not reasons:
+        return {"silent": "Everything mandated was proven", "notify": "Everything mandated was proven"}.get(p.get("tier"), "See the evidence")
+    t = re.sub(r"\s*\[[^\]]*\]$", "", reasons[0]["text"]).strip()
+    t = re.sub(r"^Also routes to a human\.\s*", "", t)
+    m = re.match(r"\w+ found a verified (?:major|blocker|minor) issue: (.*)", t)
+    if m:
+        t = m.group(1)
+    t = re.sub(r" \(and \d+ more findings?\)$", "", t)
+    if _words(t) > WHY_WORDS and "; " in t:  # "X; so Y": the conclusion is the reason
+        t = next((x for x in reversed(t.split("; ")) if _words(x) <= WHY_WORDS), t)
+    for sep in (": ", ", e.g. ", " (", ", mostly ", ". ", ", "):
+        if _words(t) > WHY_WORDS and sep in t:
+            t = t.split(sep, 1)[0]
+    for sep in _WHY_CUTS:
+        if _words(t) > WHY_WORDS and sep in t:
+            t = t.split(sep, 1)[0]
+    if _words(t) > WHY_WORDS:
+        t = " ".join(t.split()[:WHY_WORDS]) + "…"
+    return t[:1].upper() + t[1:].rstrip(".")
+
+
+def _ledger_paths() -> list[Path]:
+    here = Path(__file__).resolve().parent.parent
+    return list(dict.fromkeys([Path.cwd() / "ledger" / "ledger.jsonl", here / "ledger" / "ledger.jsonl"]))
+
+
+def _signoff(p: dict, ledger: list[dict] | None = None) -> dict | None:
+    """The newest ledger sign-off for this change: {signer, decision, ts, current} (current: it covers this exact pack)."""
+    # common.canonical + sha256_hex, inlined: site/build.py imports this module without PyYAML
+    want = hashlib.sha256(json.dumps(p, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+    if ledger is None:
+        ledger = []
+        for path in _ledger_paths():
+            try:
+                ledger = [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+            except (OSError, ValueError):
+                continue
+            if ledger:
+                break
+    best = None
+    for e in ledger:
+        pl = e.get("payload") or {}
+        if e.get("type") == "signoff" and pl.get("change") == p.get("change"):
+            cur = pl.get("pack_sha256") == want
+            if cur or not (best and best["current"]):
+                best = {"signer": e.get("signer"), "decision": pl.get("decision"), "ts": e.get("ts"), "seq": e.get("seq"), "current": cur}
+    return best
+
+
+def _marks(p: dict, so: dict | None) -> list[tuple[str, str, str]]:
+    """Three (class, glyph, words): checks, reviewers, signature."""
+    tools = [t for t in p["checked_by"]["tools"] if t.get("status") in ("pass", "fail")]
+    bad = [t["id"] for t in tools if t["status"] == "fail"]
+    core = [t for t in tools if t["id"] in ("build", "tests.full_suite")]
+    if bad and core and all(t["status"] == "pass" for t in core):
+        out = [("warn", "!", f"Builds, tests pass; {len(bad)} other check{'s' if len(bad) != 1 else ''} fail")]
+    else:
+        out = [("bad", "✕", f"{len(bad)} of {len(tools)} checks fail") if bad else ("ok", "✓", f"All {len(tools)} checks pass")]
+    major = [f for f in p.get("findings", []) if f.get("status") == "verified" and f.get("severity") in ("blocker", "major")]
+    c = p.get("card") or {}
+    open_q = len(c.get("refused") or []) + len(c.get("refused_clauses") or [])
+    if major:
+        out.append(("bad", "✕", f"Reviewers found {'a major issue' if len(major) == 1 else str(len(major)) + ' major issues'}"))
+    elif open_q:
+        out.append(("warn", "?", f"Reviewers left {open_q} question{'' if open_q == 1 else 's'} open"))
+    else:
+        out.append(("ok", "✓", "Reviewers: every requirement met"))
+    owner = p.get("owner") or "the owner"
+    dec = (so or {}).get("decision", "").replace("-", " ")
+    if so and so["current"]:
+        out.append(("ok", "✓", f"Signed by {so['signer']}: accept") if dec == "accept"
+                   else ("bad", "✕", f"Signed by {so['signer']}: {dec}"))
+    elif so:
+        out.append(("warn", "!", f"{so['signer']} signed an earlier version: {dec}"))
+    elif not (p.get("signoff") or {}).get("required", True):
+        out.append(("ok", "✓", f"No signature needed: {owner} is told"))
+    else:
+        out.append(("warn", "…", f"Awaiting {owner}"))
+    return out
+
+
+def _change_line(p: dict) -> str:
+    h = (p.get("story") or {}).get("headline", "")
+    return re.sub(r"^(?:Agent-written )?[Cc]hange for (#\S+):\s*", r"\1 ", h) or f"Change {p['change']}"
+
+
 # --- CLI ------------------------------------------------------------------------------
 
 def card(p: dict) -> str:
+    p = view(p)
     c, s = p["card"], p["story"]
     out = [f"Countersign evidence pack, change {p['change']} ({p['branch']} {p['base']}..{p['head']})" + (" [SIMULATED]" if _sim(p) else ""),
            s["headline"], "",
@@ -276,7 +431,7 @@ def _md_sign(sg: dict) -> list[str]:
 def _md_card(p: dict) -> list[str]:
     c, s = p["card"], p["story"]
     rulings = {str(r.get("dispute")): r for r in _rulings(p)}
-    out = [f"## Countersign: change {p['change']} is **{p['tier'].upper()}**, owner **{p['owner']}**" + (" (SIMULATED inputs)" if _sim(p) else ""), "",
+    out = [f"#### Sign-off card: change {p['change']} is {p['tier'].upper()}, owner {p['owner']}", "",
            f"**{s['headline']}**", "", f"{s['what']} {s['why']}", ""]
     if p.get("mutation"):
         out += [f"> Seeded mutant of {p['mutation'].get('of')}: {p['mutation'].get('description')}", ""]
@@ -513,17 +668,28 @@ def _md_supply(p: dict) -> list[str]:
 MD_LIMIT = 60000  # GitHub comments stop at 65536 characters
 
 
-def to_markdown(p: dict) -> str:
-    """The card in plain GitHub Markdown, everything else in <details>. Shrinks to stay under a PR comment's limit."""
-    head = _md_card(p) + _md_supply(p)
+def _md_story(p: dict, so: dict | None) -> list[str]:
+    """The short card: verdict, the change, one reason, three marks."""
+    marks = [f"- {g} {w}" for _c, g, w in _marks(p, so)]
+    return [f"## Countersign: **{p['tier'].upper()}**, owner **{p['owner']}**" + (" (SIMULATED inputs)" if _sim(p) else ""), "",
+            f"**{_change_line(p)}**", "", f"**Why:** {_why(p)}", "", *marks, ""]
+
+
+def to_markdown(p: dict, signoff: dict | None = None) -> str:
+    """The short card in plain GitHub Markdown, everything else in one <details>. Shrinks to stay under a PR comment's limit."""
+    so = signoff if signoff is not None else _signoff(p)
+    p = view(p)
+    head = _md_story(p, so)
+    fold = ["<details><summary><b>Evidence</b>: requirements, findings, refusals, checks, risk, how to sign</summary>", ""]
+    card = _md_card(p) + _md_supply(p)
     for parts in ((_md_trust(p), _md_panel(p), _md_evidence(p), _md_full(p)),
                   (_md_trust(p), _md_panel(p), _md_evidence(p, excerpts=False), _md_full(p)),
                   (_md_trust(p), _md_panel(p), _md_full(p)),
                   (_md_panel(p),)):
-        text = "\n".join(head + [x for part in parts for x in part])
+        text = "\n".join(head + fold + card + [x for part in parts for x in part] + ["</details>", ""])
         if len(text) <= MD_LIMIT:
             return text
-    return "\n".join(head)[:MD_LIMIT]
+    return ("\n".join(head + fold + card)[:MD_LIMIT - 20]) + "\n\n</details>\n"
 
 
 # --- HTML (self-contained, no JS, phone first, light and dark) ------------------------------
@@ -586,6 +752,17 @@ pre.cmd span{white-space:nowrap}pre.cmd{white-space:pre-wrap;overflow-wrap:norma
 :target{scroll-margin-top:8px;outline:2px solid var(--focus);outline-offset:4px;border-radius:6px}
 .ok{color:var(--ok);font-weight:600}.no{color:var(--bad);font-weight:600}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.story{min-height:calc(100vh - 160px);min-height:calc(100svh - 160px);display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:16px;padding:24px 0}
+.story .brand{font:600 14px/1.4 var(--sans);margin:0}.story .brand .mut{font-weight:400}.story h1{font-size:clamp(22px,4.4vw,32px);line-height:1.2;max-width:28ch;margin:0;text-wrap:balance}
+.pill{display:inline-flex;gap:8px;align-items:baseline;border:2px solid currentColor;border-radius:999px;padding:6px 20px;font:600 20px/1.3 var(--sans);margin:0}
+.pill b{font-family:var(--mono);letter-spacing:.04em}
+.why{font-size:clamp(18px,3.6vw,22px);margin:0;max-width:32ch}
+ul.marks{list-style:none;padding:0;margin:8px 0 0;display:grid;gap:10px;font-size:clamp(18px,3.6vw,22px);text-align:left}
+ul.marks li{display:flex;gap:12px;align-items:baseline;margin:0}ul.marks .g{display:inline-grid;place-items:center;width:1.4em;height:1.4em;border-radius:50%;font-weight:700;flex:none;border:2px solid currentColor;font-size:.8em}
+.m-ok .g{color:var(--ok);background:var(--okb)}.m-bad .g{color:var(--bad);background:var(--badb)}.m-warn .g{color:var(--warn);background:var(--warnb)}
+details#evidence{margin-top:0}details#evidence>summary{font-size:20px;text-align:center;color:var(--link);list-style:none;padding:16px 0}
+details#evidence>summary::-webkit-details-marker{display:none}details#evidence>summary::after{content:" ▾"}details#evidence[open]>summary::after{content:" ▴"}
+.story-l{font-size:14px;margin:8px 0 16px}
 @media (min-width:720px){body{font-size:16px}main{padding:24px 32px 64px}h1{font-size:24px}.story{font-size:15px}.card{padding:16px 24px 24px}}
 @media (max-width:480px){.eyebrow .range{display:none}}
 @media print{details{display:block}details>*{display:block}.jump{display:none}}
@@ -641,7 +818,8 @@ def _html_ruling(p: dict, r: dict, chain: bool = True) -> str:
     return _clip(f'{_e(_ruling_line(p, r))} <span class="mut">(advisory)</span>', body, "clip adj")
 
 
-def _html_card(p: dict) -> str:
+def _html_parts(p: dict) -> dict:
+    """The sign-off card's pieces, each placed in its group of the Evidence fold."""
     c, st = p["card"], p["story"]
     rulings = {str(r.get("dispute")): r for r in _rulings(p)}
     reasons = ""
@@ -697,22 +875,9 @@ def _html_card(p: dict) -> str:
         residual += (f'<li class="mut"><details class="mini"><summary>{_e(_more_risks(c))}</summary><ul>'
                      + "".join(f'<li>{_e(r["text"])} <a class="sm" href="{_e(r["link"])}">see</a></li>' for r in c["residual_more"])
                      + "</ul></details></li>")
-    sg = c["sign"]
-    return f"""
-<section class="card" aria-labelledby="card-h" id="card">
-<p class="eyebrow"><span id="card-h">Countersign sign-off card</span> &middot; change {_e(p["change"])}<span class="range"> &middot; <span class="mono">{_e(p["base"])}..{_e(p["head"])}</span></span></p>
-<div class="verdict">{_tier(p["tier"])}<span><b>{_e(p["owner"])}</b> {"must countersign" if sg["required"] else "is notified (AI-cleared)"}
-{('<span class="mut sm"> &middot; FYI ' + _e(", ".join(p["notify"])) + "</span>") if p["notify"] else ""}</span></div>
-<h1>{_e(st["headline"])}</h1>
-<p class="story">{_e(st["what"])} <span class="mut">{_e(st["why"])}</span></p>
-<h3>Why {_e(p["tier"])}</h3><ol class="reasons">{reasons}</ol>{more}
-<h3>Requirement trace</h3><ul class="rows">{trace}</ul>
-<h3>What the AI found</h3><ul class="rows">{found}</ul>
-<h3 id="refused">What the AI refused to decide, and who should</h3><ul class="rows">{refused}</ul>
-<h3>Not checked, and why</h3><ul class="sm">{nc or "<li>Everything mandated ran.</li>"}</ul>
-<h3>Residual risk you accept by signing</h3><ul class="sm">{residual}</ul>
-{_html_sign(sg)}
-</section>"""
+    return {"reasons": f'<ol class="reasons">{reasons}</ol>{more}', "trace": f'<ul class="rows">{trace}</ul>',
+            "found": f'<ul class="rows">{found}</ul>', "refused": f'<ul class="rows">{refused}</ul>',
+            "not_checked": f'<ul class="sm">{nc or "<li>Everything mandated ran.</li>"}</ul>', "residual": f'<ul class="sm">{residual}</ul>'}
 
 
 def _html_sign(sg: dict) -> str:
@@ -900,7 +1065,8 @@ def _html_supply(p: dict) -> str:
     return top + (f'<details class="mini"><summary>Supply-chain detail</summary>{body}</details>' if body else "")
 
 
-def _html_full(p: dict) -> str:
+def _html_full(p: dict) -> dict:
+    from .common import now_iso  # imported here so view() stays importable without PyYAML (site/build.py)
     ms = p["mandate"]["signature"]
     rp = p["reviewer_panel"]
     driver_rows = [[_tier(w["tier"], True), _e(w["source"]), f"<code>{_e(w['id'])}</code>", _e(w["why"])] for w in p["drivers"]]
@@ -919,56 +1085,97 @@ def _html_full(p: dict) -> str:
                  "<br>".join(f"<code>{_e(r['code'])}</code> {_e(r['detail'])}" for r in c["reasons"]) or "-"] for c in p["requirements"]]
     refusals = "".join(f"<li><b>{_e(r['reviewer'])}</b>: {_e(r['topic'])}. <span class=mut>Why: {_e(r['reason'])} Who: {_e(r['who_should_decide'])}</span></li>"
                        for r in p["refused"]["reviewer_refusals"]) or "<li>none</li>"
-    return f"""
-<details class="fold" id="full"><summary>Full detail: all tier drivers, risk score, every check, areas, not checked, inputs</summary>
-<h3 id="all-drivers">All tier drivers (tier = strictest)</h3>{_table(["Tier", "Source", "Id", "Why"], driver_rows)}
-<h3 id="risk">Risk score {_e(p["risk"]["score"])}</h3>{_table(["Factor", "Points", "Reason"], risk_rows, frozenset({1}))}
-<h3 id="checks">Every check</h3>{_table(["Check", "Status", "Tool", "Summary", "Log"], tool_rows)}
-<h3>Reviewers</h3>
+    return {
+        "drivers": f'<h3 id="all-drivers">All tier drivers (tier = strictest)</h3>{_table(["Tier", "Source", "Id", "Why"], driver_rows)}',
+        "risk": f'<h3 id="risk-score">Risk score {_e(p["risk"]["score"])}</h3>{_table(["Factor", "Points", "Reason"], risk_rows, frozenset({1}))}',
+        "checks": f'<h3 id="every-check">Every check</h3>{_table(["Check", "Status", "Tool", "Summary", "Log"], tool_rows)}',
+        "reviewers": f"""<h3>Reviewers</h3>
 <p class="sm">Participating: <b>{_e(", ".join(rp["reviewers"]) or "none")}</b>; adjudicator: {_e(rp["adjudicator"] or "none")}; confidential: {_e("yes (" + rp["why"] + ")" if rp["confidential"] else "no")}.</p>
 {"".join(f"<p class='sm mut'>Not used: {_e(x['name'])}: {_e(x['reason'])}</p>" for x in rp["ignored_files"])}
-{_table(["Reviewer", "Model", "Prompt", "Reviewed", "Verified", "Rejected", "Refusals"], rev_rows, frozenset({4, 5, 6}))}
-<h3>Every reviewer refusal</h3><ul class="sm">{refusals}</ul>
-<h3>Requirement trace, engine codes</h3>{_table(["Clause", "Status", "Verdicts", "Checks", "Reasons"], req_rows)}
-<h3 id="areas">Areas touched</h3>{_table(["Area", "Owner", "Sensitivity", "AI cap", "Cap source", "Files"], area_rows, frozenset({5}))}
-<h3 id="not-checked">What was not checked, and why</h3>
-<ul class="sm">{"".join(f"<li><code>{_e(x['id'])}</code> <span class=mut>({_e(x['source'])})</span>: {_e(x['reason'])}</li>" for x in p["not_checked"])}</ul>
-<h3>Residual risk, every item</h3><ul class="sm">{"".join(f"<li>{_e(r)}</li>" for r in p["residual_risk"])}</ul>
-<h3>Provenance</h3>
+{_table(["Reviewer", "Model", "Prompt", "Reviewed", "Verified", "Rejected", "Refusals"], rev_rows, frozenset({4, 5, 6}))}""",
+        "refusals": f'<h3>Every reviewer refusal</h3><ul class="sm">{refusals}</ul>',
+        "codes": f'<h3>Requirement trace, engine codes</h3>{_table(["Clause", "Status", "Verdicts", "Checks", "Reasons"], req_rows)}',
+        "areas": f'<h3 id="areas">Areas touched</h3>{_table(["Area", "Owner", "Sensitivity", "AI cap", "Cap source", "Files"], area_rows, frozenset({5}))}',
+        "not_checked": f"""<h3 id="not-checked">What was not checked, and why</h3>
+<ul class="sm">{"".join(f"<li><code>{_e(x['id'])}</code> <span class=mut>({_e(x['source'])})</span>: {_e(x['reason'])}</li>" for x in p["not_checked"])}</ul>""",
+        "residual": f'<h3>Residual risk, every item</h3><ul class="sm">{"".join(f"<li>{_e(r)}</li>" for r in p["residual_risk"])}</ul>',
+        "provenance": f"""<h3>Provenance</h3>
 <p class="sm">Branch <code>{_e(p["branch"])}</code> {_e(p["base"])}..{_e(p["head"])}, {_e(p["diff"]["files"])} files, +{_e(p["diff"]["insertions"])} &minus;{_e(p["diff"]["deletions"])}, author {_e(p["author"])} (agent-written: {_e(p["agent_written"])}). Commit: &ldquo;{_e(p["commit_message"])}&rdquo;.</p>
 <p class="sm">Mandate {_e(p["mandate"]["id"])} v{_e(p["mandate"]["version"])} <code>{_e(p["mandate"]["sha256"][:16])}</code>:
 {"signed by " + _e(ms.get("signed_by")) if ms["valid"] else "<b class=no>signature not valid: " + _e(ms["reason"]) + "</b>"}. {_e(p["checked_by"]["engine"])}.</p>
 <p class="sm mut">Inputs: facts {_e(p["inputs"]["facts"]["path"])} ({_e(p["inputs"]["facts"]["sha256"][:12])}), requirements {_e(p["inputs"]["requirements"]["path"])},
-reviews {_e(", ".join(f"{k} ({v['sha256'][:12]})" for k, v in p["inputs"]["reviews"].items()))}. Rendered {_e(now_iso())}.</p>
-</details>"""
+reviews {_e(", ".join(f"{k} ({v['sha256'][:12]})" for k, v in p["inputs"]["reviews"].items()))}. Rendered {_e(now_iso())}.</p>""",
+    }
 
 
-def to_html(p: dict) -> str:
-    s = p["story"]
+def _html_story(p: dict, so: dict | None) -> str:
+    """The first screen: verdict pill, the change in one line, one reason, three marks. Status is glyph + words."""
+    marks = "".join(f'<li class="m-{c}"><span class="g" aria-hidden="true">{g}</span>{_e(w)}</li>' for c, g, w in _marks(p, so))
+    who = f" &rarr; {_e(p['owner'])} decides" if p["tier"] in ("ask", "block") else f" &middot; {_e(p['owner'])} is told"
+    pill = f'<b>{_e(p["tier"].upper())}</b>{who}'
+    if so and so.get("current"):  # already decided: say what the ledger records, not what is still to come
+        pill = f'{_e(so["signer"])} decided: {_e((so.get("decision") or "").replace("-", " "))}'
+    return (f'<section class="story" id="card" aria-labelledby="card-h">'
+            f'<p class="brand">Countersign <span class="mut">&middot; {_e(TAGLINE)}</span></p>'
+            f'<p class="pill t-{_e(p["tier"])}">{pill}</p>'
+            f'<h1 id="card-h">{_e(_change_line(p))}</h1>'
+            f'<p class="why"><b>Why:</b> {_e(_why(p))}</p>'
+            f'<ul class="marks" aria-label="Checks, reviewers, signature">{marks}</ul></section>')
+
+
+def to_html(p: dict, signoff: dict | None = None) -> str:
+    so = signoff if signoff is not None else _signoff(p)
+    p = view(p)
     ev = p["evidence_index"]
+    c = _html_parts(p)
+    full = _html_full(p)
     findings = "".join(_html_finding(f, ev) for f in p["findings"]) or '<p class="sm mut">No verified findings.</p>'
     rejected = "".join(_html_finding(f, ev) for f in p["rejected_claims"])
     mut = f'<p class="callout">Seeded mutant of {_e(p["mutation"].get("of"))}: {_e(p["mutation"].get("description"))}</p>' if p.get("mutation") else ""
+    st = p["story"]
     body = f"""
 <main>
 {'<p class="banner">Simulated inputs: fixture data, not a real run</p>' if _sim(p) else ""}
 {mut}
-{_html_card(p)}
-<nav class="jump" aria-label="Sections"><a href="#supply-chain">Supply chain</a><a href="#trust">Where the trust comes from</a><a href="#panel">Reviewer panel</a><a href="#evidence">Evidence</a><a href="#full">Full detail</a></nav>
-<h2 id="supply-chain">Supply chain (from the build)</h2>
-{_html_supply(p)}
-<h2 id="trust">Where the trust comes from</h2>
+{_html_story(p, so)}
+<details class="fold" id="evidence"><summary>Evidence</summary>
+<nav class="jump" aria-label="Evidence groups"><a href="#requirements">Requirements</a><a href="#findings">Findings</a><a href="#refused">Refusals</a><a href="#checks">Checks</a><a href="#risk">Risk</a><a href="#sign">Sign</a></nav>
+<p class="story-l">{_e(st["headline"])}. {_e(st["what"])} <span class="mut">{_e(st["why"])}</span></p>
+<h2 id="requirements">Requirements</h2>
+{c["trace"]}
+<h3 id="trust">Where the trust comes from</h3>
 <p class="sm mut">For each requirement clause: the checks that passed, the tests that fail without the fix, and the reviewers who agreed with verified citations; for refused clauses, who disagreed and what would settle it.</p>
 {_html_trust(p)}
-<h2 id="panel">Reviewer panel</h2>
+<h3 id="panel">Reviewer panel</h3>
 {_html_panel(p)}
-<h2 id="evidence">Evidence</h2>
-<h3 id="findings">Findings ({len(p["findings"])} verified{", " + str(len(p["rejected_claims"])) + " rejected" if p["rejected_claims"] else ""})</h3>
+{full["codes"]}
+<h2 id="findings">Findings ({len(p["findings"])} verified{", " + str(len(p["rejected_claims"])) + " rejected" if p["rejected_claims"] else ""})</h2>
+{c["found"]}
 {findings}{rejected}
+<h2 id="refused">Refusals: what the AI would not decide, and who should</h2>
+{c["refused"]}
+{full["refusals"]}
+<h2 id="checks">Checks</h2>
+<h3 id="supply-chain">Supply chain (from the build)</h3>
+{_html_supply(p)}
+{full["checks"]}
+<h3>Not checked, and why</h3>{c["not_checked"]}
+{full["not_checked"]}
 <h3>Cited code, tests and checks ({len(ev)})</h3>
 <p class="sm mut">Code is shown from git at the cited revision; the cited line is highlighted. Tests show every run they appear in, including the run with the fix reverted.</p>
 {"".join(_html_ev(e) for e in ev.values())}
-{_html_full(p)}
+<h2 id="risk">Risk</h2>
+<h3>Why {_e(p["tier"])}</h3>{c["reasons"]}
+{full["drivers"]}
+{full["risk"]}
+<h3>Residual risk you accept by signing</h3>{c["residual"]}
+{full["residual"]}
+{full["areas"]}
+{full["reviewers"]}
+{full["provenance"]}
+<h2 id="sign">Sign</h2>
+{_html_sign(p["card"]["sign"])}
+</details>
 </main>"""
     return (f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
             f'<meta name="color-scheme" content="light dark">'
