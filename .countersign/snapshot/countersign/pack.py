@@ -298,14 +298,15 @@ def _adjudication_summary(adj: dict | None, disputes: list[dict]) -> dict | None
 
 
 # Renderers live in pack_render.py; re-exported so callers keep using pack.card / pack.to_markdown / pack.to_html.
-from .pack_render import card, to_html, to_markdown  # noqa: E402
+from .pack_render import card, md_story, to_html, to_markdown  # noqa: E402
 
 
 def write(ws: Workspace, pack: dict) -> Path:
     out = ws.pack_dir(pack["change"])
     write_json(out / "pack.json", pack)
-    (out / "pack.md").write_text(to_markdown(pack), encoding="utf-8")
-    (out / "pack.html").write_text(to_html(pack), encoding="utf-8")
+    entries = ledger.read(ws)  # the card reports this workspace's sign-offs, the same ledger the pack was built from
+    (out / "pack.md").write_text(to_markdown(pack, entries), encoding="utf-8")
+    (out / "pack.html").write_text(to_html(pack, entries), encoding="utf-8")
     return out
 
 
