@@ -1,0 +1,146 @@
+{
+  "change": "demo-docs1",
+  "branch": "ju26-demo-docs1",
+  "base": "32258fdb",
+  "head": "6e9b25c5",
+  "base_full": "32258fdbee4bcd653c79f51b4376b5103c6f4d27",
+  "head_full": "6e9b25c578509b1b38d60d5c99f851ac4897e780",
+  "commit_message": "docs: fix broken README anchor for migration notes\n\nThe table of contents linked to #migration-notes-from-v1x, but the section\nis headed \"Migration notes from prior versions\", so the link went nowhere.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>",
+  "author": "Zawaer",
+  "agent_written": true,
+  "repo": "https://github.com/Zawaer/countersign-messagepack-demo",
+  "diff": {
+    "files": 1,
+    "insertions": 1,
+    "deletions": 1,
+    "by_kind": {
+      "doc": 1
+    },
+    "by_file": [
+      {
+        "path": "README.md",
+        "ins": 1,
+        "del": 1,
+        "kind": "doc"
+      }
+    ]
+  },
+  "new_tests_in_diff": [],
+  "checks": [
+    {
+      "id": "build",
+      "status": "skipped",
+      "summary": "not run: docs-only change: no compiled or test file changed (only README.md), so nothing was built or run",
+      "reason": "docs-only change: no compiled or test file changed (only README.md), so nothing was built or run"
+    },
+    {
+      "id": "tests.targeted",
+      "status": "skipped",
+      "summary": "not run: docs-only change: no compiled or test file changed (only README.md), so nothing was built or run",
+      "reason": "docs-only change: no compiled or test file changed (only README.md), so nothing was built or run"
+    },
+    {
+      "id": "tests.fail_without_fix",
+      "status": "skipped",
+      "summary": "not run: docs-only change: no compiled or test file changed (only README.md), so nothing was built or run",
+      "reason": "docs-only change: no compiled or test file changed (only README.md), so nothing was built or run"
+    },
+    {
+      "id": "tests.full_suite",
+      "status": "skipped",
+      "summary": "not run: docs-only change: no compiled or test file changed (only README.md), so nothing was built or run",
+      "reason": "docs-only change: no compiled or test file changed (only README.md), so nothing was built or run"
+    },
+    {
+      "id": "public_api",
+      "tool": "git diff --name-only (no file under src/ changed)",
+      "status": "pass",
+      "summary": "no public API changes: the change touches no file under src/ and no PublicAPI.*.txt",
+      "publicapi_files_changed": []
+    },
+    {
+      "id": "analyzers",
+      "status": "skipped",
+      "summary": "not run: docs-only change: no compiled or test file changed (only README.md), so nothing was built or run",
+      "reason": "docs-only change: no compiled or test file changed (only README.md), so nothing was built or run"
+    },
+    {
+      "id": "docs.anchors",
+      "tool": "evidence/up-scripts/upfacts.py docs_anchors (GitHub heading slugs + <a name/id>)",
+      "status": "pass",
+      "summary": "1 intra-document link(s) on lines the change touched, 0 unresolved at head; README.md: base had 3 unresolved of 63, head has 2 unresolved on lines the change did not touch (#author-info, #rpc)",
+      "links_on_touched_lines": [
+        {
+          "file": "README.md",
+          "line": 22,
+          "anchor": "migration-notes-from-prior-versions",
+          "resolves_at_head": true
+        }
+      ],
+      "files": [
+        {
+          "file": "README.md",
+          "links_at_head": 63,
+          "links_at_base": 63,
+          "unresolved_at_base": [
+            "author-info",
+            "migration-notes-from-v1x",
+            "rpc"
+          ],
+          "unresolved_at_head_on_untouched_lines": [
+            "author-info",
+            "rpc"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "injection_scan",
+      "tool": "countersign.injection (deterministic pattern scan)",
+      "tool_version": "injection-v2",
+      "status": "pass",
+      "summary": "no text addressed to automated reviewers in the added lines, file paths, branch, commit message or PR text",
+      "scanned": {
+        "diff_added_lines": 1,
+        "files": 1,
+        "paths": 1,
+        "binary_files": 0,
+        "branch": true,
+        "commit_message": true,
+        "pr_text": false
+      },
+      "patterns": [
+        "addressed_to_ai",
+        "override_instructions",
+        "verdict_steering",
+        "claimed_approval",
+        "role_play",
+        "lgtm",
+        "hidden_unicode",
+        "mixed_script",
+        "unscannable"
+      ],
+      "matches": [],
+      "sources": {
+        "diff": "git diff 32258fdb 6e9b25c5 (added lines and file paths)",
+        "branch": "facts.branch",
+        "commit_message": "facts.commit_message",
+        "pr_text": "none: the change has no pull request text"
+      }
+    }
+  ],
+  "not_run": [
+    {
+      "id": "docs.rendering",
+      "reason": "Markdown was not rendered; anchors were resolved with GitHub slug rules re-implemented in upfacts.py"
+    },
+    {
+      "id": "docs.external_links",
+      "reason": "links to other files or URLs were not followed (offline)"
+    }
+  ],
+  "environment": {
+    "os": "linux-x64 (container)",
+    "note": "no .NET build for a docs-only change"
+  }
+}

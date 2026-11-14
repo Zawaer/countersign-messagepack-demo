@@ -8,7 +8,7 @@ owners:
   Toivo: Zawaer
   # Rene: <GitHub login>   (not mapped yet: Rene's areas are docs and build, none of the four changes is primarily his)
 
-branch_pattern: 'ju26-issue-(?P<change>\d+)'   # branch -> change id (requirements/<id>.yaml, evidence/<id>/)
+branch_pattern: 'ju26-(?:issue-)?(?P<change>\d+|demo-[a-z0-9-]+)'   # ju26-issue-<n> or ju26-demo-<name> -> change id (requirements/<id>.yaml, evidence/<id>/)
 ledger_branch: countersign-ledger              # append-only, hash-chained ledger; written by CI after verification
 status_context: countersign/tier               # required status on main
 recorded: true                                 # reviews and build/test results are replayed from the pinned snapshot

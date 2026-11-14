@@ -1,0 +1,69 @@
+{
+ "reviewer": "claude",
+ "model": "claude-opus-5-5",
+ "vendor": "Anthropic",
+ "prompt_version": "review-v1",
+ "reviewed_at": "2026-11-14T14:35:00+02:00",
+ "inputs": [
+  "diff 32258fdb..6e9b25c5",
+  "facts.json",
+  "requirements/demo-docs1.yaml",
+  "README.md at head and base (the TOC line and the section heading, as the brief allows)"
+ ],
+ "summary": "Docs-only one-line fix: the README table-of-contents entry \"Migration notes from v1.x\" linked #migration-notes-from-v1x, which no heading produces; it now links #migration-notes-from-prior-versions, the GitHub slug of the \"### Migration notes from prior versions\" heading under Installation. docs.anchors resolves it at head and listed the old anchor as unresolved at base. Both clauses met; the entry's text still says \"v1.x\" while the heading says \"prior versions\" (cosmetic, left as is).",
+ "requirement_verdicts": [
+  {
+   "req": "REQ-demo-docs1-F1",
+   "verdict": "met",
+   "confidence_basis": "README.md:22 now links #migration-notes-from-prior-versions, which is the slug of the heading at README.md:101 (the Installation subsection the entry names), and docs.anchors passes with the link resolving at head.",
+   "evidence": [
+    {"kind": "requirement", "req": "REQ-demo-docs1-F1", "quote": "must link to an anchor that exists in README.md"},
+    {"kind": "code", "file": "README.md", "line": 22, "rev": "head", "quote": "[Migration notes from v1.x](#migration-notes-from-prior-versions)"},
+    {"kind": "code", "file": "README.md", "line": 101, "rev": "head", "quote": "### Migration notes from prior versions"},
+    {"kind": "code", "file": "README.md", "line": 22, "rev": "base", "quote": "(#migration-notes-from-v1x)"},
+    {"kind": "check", "id": "docs.anchors", "status": "pass"}
+   ]
+  },
+  {
+   "req": "REQ-demo-docs1-N1",
+   "verdict": "met",
+   "confidence_basis": "facts.json records one file (README.md, kind doc) with 1 insertion and 1 deletion, and the diff changes only the link target on line 22; public_api confirms no src change.",
+   "evidence": [
+    {"kind": "requirement", "req": "REQ-demo-docs1-N1", "quote": "Only that link changes"},
+    {"kind": "check", "id": "public_api", "status": "pass"},
+    {"kind": "code", "file": "README.md", "line": 22, "rev": "head", "quote": "(#migration-notes-from-prior-versions)"}
+   ]
+  }
+ ],
+ "findings": [
+  {
+   "id": "C1",
+   "title": "TOC entry text still says \"v1.x\"; heading says \"prior versions\"",
+   "severity": "info",
+   "category": "docs",
+   "claim": "The link now reaches the right section, but its label differs from the heading it points to. Harmless; renaming the label would be a separate wording change outside this fix's scope.",
+   "evidence": [
+    {"kind": "code", "file": "README.md", "line": 22, "rev": "head", "quote": "[Migration notes from v1.x]"},
+    {"kind": "code", "file": "README.md", "line": 101, "rev": "head", "quote": "Migration notes from prior versions"}
+   ]
+  },
+  {
+   "id": "C2",
+   "title": "Two other broken README anchors remain (#rpc, #author-info)",
+   "severity": "info",
+   "category": "docs",
+   "claim": "docs.anchors still reports #rpc and #author-info unresolved on lines the change did not touch. Outside this change's scope; a follow-up.",
+   "evidence": [
+    {"kind": "check", "id": "docs.anchors", "status": "pass"}
+   ]
+  }
+ ],
+ "refusals": [
+  {
+   "topic": "How GitHub actually renders and scrolls to the new anchor",
+   "reason": "docs.rendering was not run; resolution relies on re-implemented slug rules plus the heading I read",
+   "who_should_decide": "docs owner"
+  }
+ ],
+ "refutations": []
+}

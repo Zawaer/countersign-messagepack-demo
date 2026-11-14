@@ -1,0 +1,15 @@
+# Agent-written docs fix in the demo repo (Zawaer/countersign-messagepack-demo, branch ju26-demo-docs1, base 32258fdb):
+# the README table of contents linked "Migration notes from v1.x" to #migration-notes-from-v1x, which no heading
+# produces (the section is "### Migration notes from prior versions"). The first change meant to clear through the
+# demo repo's PR gate without a person. Not a Tieto requirement set.
+change: "demo-docs1"
+branch: ju26-demo-docs1 (base 32258fdb, head 6e9b25c5)
+source: https://github.com/Zawaer/countersign-messagepack-demo/tree/ju26-demo-docs1
+official: false
+requirements:
+  - id: REQ-demo-docs1-F1
+    type: docs
+    text: "The README table-of-contents entry \"Migration notes from v1.x\" must link to an anchor that exists in README.md and resolves to the intended section (\"Migration notes from prior versions\", under Installation)."
+  - id: REQ-demo-docs1-N1
+    type: docs
+    text: "Only that link changes; no other README content and no other file is altered."
