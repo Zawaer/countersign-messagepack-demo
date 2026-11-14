@@ -16,20 +16,18 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write   # push to the countersign-ledger branch only (main is protected)
-  statuses: write
-  pull-requests: write
-  issues: write
+  contents: write   # push to the countersign-ledger branch only (main is protected); the status, replies and labels
+                    # go through the Countersign Gate app token
 
 jobs:
   command:
     if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/countersign') && github.event.comment.user.type != 'Bot' }}
     name: countersign command
+    environment: countersign-gate   # holds COUNTERSIGN_APP_KEY; deployment branches: main only
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     env:
       PR: ${{ github.event.issue.number }}
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: cracicorp/setup@5cbae507e2547dca6c402e413c645767fbae3534 # v1
         if: ${{ vars.CI_RUNNER == 'craci' }}
@@ -46,7 +44,14 @@ jobs:
         run: |
           python3 -m venv /tmp/venv
           /tmp/venv/bin/pip install -q pyyaml==6.0.3 cryptography==50.0.2
+      - name: Mint the Countersign Gate app token (posts status, comment, labels, routing)
+        id: gate
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.COUNTERSIGN_APP_ID }}
+          private-key: ${{ secrets.COUNTERSIGN_APP_KEY }}
       - name: Verify and record
         env:
           PYTHONPATH: .countersign/snapshot
+          GITHUB_TOKEN: ${{ steps.gate.outputs.token }}   # read by countersign.github for every API call
         run: /tmp/venv/bin/python -m countersign.github command --ledger-dir /tmp/ledger --artifacts /tmp/signoff
