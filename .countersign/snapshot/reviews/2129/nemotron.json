@@ -1,0 +1,197 @@
+{
+  "reviewer": "nemotron",
+  "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  "vendor": "NVIDIA",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:56:41+02:00",
+  "inputs": [
+    "requirements: requirements/2129.yaml",
+    "issue: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2129",
+    "facts: evidence/2129/facts.json",
+    "diff 32258fdb..083afd99 (26 non-generated files)",
+    "file contents: 19 blocks",
+    "context: 182626 chars (budget 180000)"
+  ],
+  "not_given": [
+    "the contents and diffs of 2 generated files (listed above by name only)",
+    "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs at base: not provided (did not fit the context budget)",
+    "src/MessagePack.SourceGenerator/GeneratorUtilities.cs at base: not provided (did not fit the context budget)",
+    "src/MessagePack.SourceGenerator/MessagePackGenerator.cs at base: not provided (did not fit the context budget)",
+    "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt at base: not provided (did not fit the context budget)",
+    "src/MessagePack.SourceGenerator/Utils/Constants.cs at base: not provided (did not fit the context budget)",
+    "src/MessagePack.Annotations/Attributes.cs at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/CodeAnalysis/ObjectSerializationInfo.cs at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/MessagePackGenerator.cs at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Transforms/StringKey/StringKeyFormatterTemplate.tt at head: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.Annotations/Attributes.cs at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Analyzers/MsgPack00xMessagePackAnalyzer.cs at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "README.md: diff only, full file not provided (doc)",
+    "doc/analyzers/MsgPack019.md: diff only, full file not provided (doc)",
+    "doc/analyzers/MsgPack020.md: diff only, full file not provided (doc)",
+    "doc/analyzers/MsgPack021.md: diff only, full file not provided (doc)",
+    "doc/analyzers/MsgPack022.md: diff only, full file not provided (doc)",
+    "doc/analyzers/index.md: diff only, full file not provided (doc)",
+    "src/MessagePack.SourceGenerator/AnalyzerReleases.Unshipped.md: diff only, full file not provided (build)",
+    "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj: diff only, full file not provided (build)",
+    "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj: diff only, full file not provided (build)",
+    "tests/MessagePack.SourceGenerator.MapModeExecutionTests/MessagePack.SourceGenerator.MapModeExecutionTests.csproj: diff only, full file not provided (build)",
+    "the upstream issue page itself (only its URL); other files of the repository; build and test logs (only the facts.json summaries)"
+  ],
+  "runner": {
+    "tool": "countersign review-llm",
+    "endpoint": "https://integrate.api.nvidia.com/v1",
+    "self_hostable": true,
+    "calls": 2,
+    "json_repaired": false,
+    "raw": "reviews/2129/raw/nemotron.response.json",
+    "usage": {
+      "prompt_tokens": 103847,
+      "completion_tokens": 18432
+    },
+    "reparsed_from_raw": "call 1 of 2, re-parsed offline with the current parser"
+  },
+  "summary": "Change 2129 implements the feature request by adding a [GeneratedMessagePackFormatter] attribute and source-generator support: a partial formatter class for a type in another (unmodifiable) assembly gets its Serialize/Deserialize body written by the generator and is registered in the generated resolver, using contractless mode by default with an optional surrogate type for key/membership control. Four new analyzer diagnostics (MsgPack019–022) validate usage. The change addresses the root cause (no mechanism existed to format types from referenced assemblies) rather than a symptom; all new tests pass, fail on the reverted base source, and the execution tests do not compile without the fix. Documentation (README, MsgPack019–022, AnalyzerReleases.Unshipped.md, index.md) describes the feature and its limitations.",
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2129-F1",
+      "verdict": "met",
+      "confidence_basis": "The branch adds the [GeneratedMessagePackFormatter] attribute (Attributes.cs:166), generator discovery of such formatters (MessagePackGenerator.cs:30) and their collection into the resolver model (GeneratedFormatterCollector.cs:72), with contractless and surrogate member selection; execution tests round-trip types from ExternalTypes, an assembly without any MessagePack reference, and pass, while the same tests fail on base source and the execution tests do not compile without the fix.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.Annotations/Attributes.cs",
+          "line": 166,
+          "rev": "head",
+          "quote": "public class GeneratedMessagePackFormatterAttribute : Attribute"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/MessagePackGenerator.cs",
+          "line": 30,
+          "rev": "head",
+          "quote": "$\"{AttributeNamespace}.{GeneratedMessagePackFormatterAttributeName}\""
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/CodeAnalysis/GeneratedFormatterCollector.cs",
+          "line": 72,
+          "rev": "head",
+          "quote": "GeneratedFormatterCollector.Collect(s.Left.Right, options, referenceSymbols, reportDiagnostic: null, request.Formatter, request.Surrogate, ct) is FullModel generatedModel"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.ContractlessClassRoundTrips",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedFormatterForExternalTypesTests.SurrogateControlsKeysAndMembership",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "GeneratedMessagePackFormatterTests.FormatterMustBePartial",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix",
+          "status": "pass"
+        },
+        {
+          "kind": "check",
+          "id": "tests.execution_fail_without_fix",
+          "status": "pass"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite",
+          "status": "pass"
+        },
+        {
+          "kind": "check",
+          "id": "tests.execution_full_suite",
+          "status": "pass"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "N1",
+      "title": "New ExternalTypes test project is not added to the solution file",
+      "severity": "minor",
+      "category": "build",
+      "claim": "The new project tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj is not added to MessagePack.sln; it is only referenced from ExecutionTests.csproj, so solution-level builds may not include or build it consistently.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "solution_membership",
+          "status": "fail"
+        }
+      ],
+      "suggested_fix": "Add the ExternalTypes project to MessagePack.sln and verify it builds in solution context."
+    },
+    {
+      "id": "N2",
+      "title": "Execution tests require SDK 9 / Roslyn 4.12 but the repo pins SDK 8.0.402",
+      "severity": "major",
+      "category": "build",
+      "claim": "Building tests/MessagePack.SourceGenerator.ExecutionTests with SDK 8.0.402 fails with CS9057 because the source generator references Microsoft.CodeAnalysis 4.12 while SDK 8 ships Roslyn 4.11; the SDK 9 override existed only in the scratch worktree, so builds on the pinned SDK cannot compile these new tests (the targeted run passes only under SDK 9).",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "tests.targeted.execution",
+          "status": "pass"
+        }
+      ],
+      "suggested_fix": "Align global.json/CI to SDK 9 for these projects, or align the generator's Roslyn dependency with the pinned SDK; area owner to decide."
+    },
+    {
+      "id": "N3",
+      "title": "New public API added without PublicAPI tracking in MessagePack.Annotations",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "MessagePack.Annotations gains public class GeneratedMessagePackFormatterAttribute with public Type? SurrogateType, and the analyzer gains four public DiagnosticDescriptors (MsgPack019–022), but MessagePack.Annotations has no PublicAPI.*.txt so PublicApiAnalyzers did not flag the addition; future breaking changes to this surface will not be caught by that analyzer.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "public_api",
+          "status": "fail"
+        }
+      ],
+      "suggested_fix": "Add PublicAPI tracking for MessagePack.Annotations or review the new surface as intentional public API."
+    },
+    {
+      "id": "N4",
+      "title": "New StyleCop SA1203 warning in GeneratedMessagePackFormatterTests.cs",
+      "severity": "minor",
+      "category": "maintainability",
+      "claim": "A new warning SA1203 (constant fields should appear before non-constant fields) appears versus base, because the const string Members is declared after the non-constant testOutputHelper field.",
+      "evidence": [
+        {
+          "kind": "check",
+          "id": "analyzers",
+          "status": "fail"
+        }
+      ],
+      "suggested_fix": "Reorder fields so constants precede non-constant fields, or justify a suppression."
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "Generated output of FormatterTemplate.cs and StringKeyFormatterTemplate.cs",
+      "reason": "The two generated template .cs files were listed as changed but their contents/diffs were not provided, so the exact generated formatter class text could not be inspected directly; behavior was verified through the passing execution tests instead.",
+      "who_should_decide": "area owner (or re-run this review with the generated file contents)"
+    },
+    {
+      "topic": "Security review of serializing externally defined types via generated formatters",
+      "reason": "No runtime deserialization code was changed by this branch, but the library deserializes untrusted input and this feature lets formats be generated for types the reviewer cannot inspect; a formal security judgement is beyond the provided evidence.",
+      "who_should_decide": "area owner / security reviewer"
+    }
+  ]
+}

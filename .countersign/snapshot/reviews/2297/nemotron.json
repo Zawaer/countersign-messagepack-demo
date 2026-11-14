@@ -1,0 +1,150 @@
+{
+  "reviewer": "nemotron",
+  "model": "nvidia/nemotron-3.5-super-vl-120b-a12b",
+  "vendor": "NVIDIA",
+  "prompt_version": "review-v1",
+  "reviewed_at": "2026-11-14T01:59:11+02:00",
+  "inputs": [
+    "requirements: requirements/2297.yaml",
+    "issue: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/2297",
+    "facts: evidence/2297/facts.json",
+    "diff 32258fdb..a0aa5ab2 (9 non-generated files)",
+    "file contents: 15 blocks",
+    "context: 180156 chars (budget 180000)"
+  ],
+  "not_given": [
+    "the contents and diffs of 228 generated files (listed above by name only)",
+    "src/MessagePack.SourceGenerator/Transforms/TransformUtilities.cs at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "src/MessagePack.SourceGenerator/Transforms/UnionTemplate.tt at base: only ±30 lines around the changes (the full file did not fit the budget)",
+    "README.md: diff only, full file not provided (doc)",
+    "the upstream issue page itself (only its URL); other files of the repository; build and test logs (only the facts.json summaries)"
+  ],
+  "runner": {
+    "tool": "countersign review-llm",
+    "endpoint": "https://integrate.api.nvidia.com/v1",
+    "self_hostable": true,
+    "calls": 1,
+    "json_repaired": false,
+    "raw": "reviews/2297/raw/nemotron.response.json",
+    "usage": {
+      "prompt_tokens": 53120,
+      "completion_tokens": 12657
+    }
+  },
+  "summary": "The change adds [ExcludeFromCodeCoverage] to every type emitted by the MessagePack source generator (formatters, resolvers, enum and union formatters, composite resolvers), guarded by #if !NETSTANDARD2_0 && !NETFRAMEWORK so netstandard2.0/.NET Framework consumers still compile. All six T4 templates and their checked-in generated outputs emit the attribute; the two new tests pass on head and fail on base source, and the full 169-test generator suite passes on head. One unrelated formatting change in TransformUtilities.cs is out of scope.",
+  "requirement_verdicts": [
+    {
+      "req": "REQ-2297-F1",
+      "verdict": "met",
+      "confidence_basis": "All six source-generator templates emit [global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage] behind the #if !NETSTANDARD2_0 && !NETFRAMEWORK guard (e.g. ResolverTemplate.tt lines 14-16 and FormatterTemplate.tt lines 14-16; the same pattern appears in CompositeResolverTemplate, EnumTemplate, StringKeyFormatterTemplate and UnionTemplate), the checked-in generated outputs were regenerated accordingly, the new test CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage passes on head and failed on base source, and the full 169-test generator suite passes on head.",
+      "evidence": [
+        {
+          "kind": "requirement",
+          "req": "REQ-2297-F1",
+          "quote": "Add ExcludeFromCodeCoverage attribute to generated code."
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/ResolverTemplate.tt",
+          "line": 14,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/ResolverTemplate.tt",
+          "line": 15,
+          "rev": "head",
+          "quote": "[global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+          "line": 14,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/FormatterTemplate.tt",
+          "line": 15,
+          "rev": "head",
+          "quote": "[global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/CompositeResolverTemplate.tt",
+          "line": 7,
+          "rev": "head",
+          "quote": "#if !NETSTANDARD2_0 && !NETFRAMEWORK"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/CompositeResolverTemplate.tt",
+          "line": 8,
+          "rev": "head",
+          "quote": "[global::System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverage]"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage",
+          "outcome": "passed"
+        },
+        {
+          "kind": "test",
+          "name": "CodeCoverageExclusionTests.AllGeneratedTypesAreExcludedFromCodeCoverage",
+          "outcome": "failed",
+          "check": "tests.fail_without_fix"
+        },
+        {
+          "kind": "check",
+          "id": "tests.full_suite",
+          "status": "pass"
+        },
+        {
+          "kind": "check",
+          "id": "tests.fail_without_fix",
+          "status": "pass"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "N1",
+      "title": "Unrelated formatting change in TransformUtilities.cs outside the requirement scope",
+      "severity": "minor",
+      "category": "scope",
+      "claim": "TransformUtilities.cs line 58 changed the brace emission for nested types that carry type constraints from emitting just \"{\" to emitting \"{\\r\\n\", adding a newline after the opening brace in generated code. This is unrelated to REQ-2297-F1 (ExcludeFromCodeCoverage) and changes generated output beyond the requirement's scope.",
+      "evidence": [
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/TransformUtilities.cs",
+          "line": 58,
+          "rev": "head",
+          "quote": "writer(anyConstraints ? \"{\\r\\n\" : \" {\\r\\n\");"
+        },
+        {
+          "kind": "code",
+          "file": "src/MessagePack.SourceGenerator/Transforms/TransformUtilities.cs",
+          "line": 58,
+          "rev": "base",
+          "quote": "writer(anyConstraints ? \"{\" : \" {\\r\\n\");"
+        }
+      ],
+      "suggested_fix": "Revert TransformUtilities.cs to the base line, or move this formatting change to a separate change so this change stays limited to ExcludeFromCodeCoverage emission."
+    }
+  ],
+  "refusals": [
+    {
+      "topic": "netstandard2.0 and .NET Framework compilation of generated output",
+      "reason": "build.net472/netstandard was not run (Linux container, only net8.0 built), so the #if guard's effect for those targets was not compile-verified; only the template text was inspected.",
+      "who_should_decide": "area owner / maintainer with a multi-target build"
+    },
+    {
+      "topic": "runtime execution of generated formatters/resolvers (execution tests)",
+      "reason": "tests.execution was not run: SDK 8.0.402 ships Roslyn 4.11 while the generator references Microsoft.CodeAnalysis 4.12.0, so execution test projects fail to compile (CS9057/CS0117); this mismatch exists on base too and is environmental, not caused by the change.",
+      "who_should_decide": "area owner / maintainer, after moving to an SDK with Roslyn >= 4.12"
+    }
+  ]
+}

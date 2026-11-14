@@ -149,7 +149,8 @@ def cmd_review_llm(a) -> int:
     status = 0
     for change in a.changes:
         try:
-            out = llm.run_review(ws, change, a.reviewer, a.repo, budget=a.context_chars)
+            out = (llm.review_from_raw(ws, change, a.reviewer, a.repo, budget=a.context_chars) if a.from_raw
+                   else llm.run_review(ws, change, a.reviewer, a.repo, budget=a.context_chars))
         except llm.LLMError as e:
             print(f"error: {change}: {e}", file=sys.stderr)
             status = 1
@@ -181,6 +182,27 @@ def cmd_adjudicate(a) -> int:
 def cmd_costs(a) -> int:
     out = costs_mod.write(_ws(a))
     print(f"wrote {out}")
+    return 0
+
+
+def cmd_history(a) -> int:
+    from . import history
+    ws = _ws(a)
+    r = history.replay(ws)
+    out = history.write(ws, r)
+    for mode, s in r["modes"].items():
+        print(f"{mode}: {s['routed_to_humans']}/{s['n']} routed to a human, {s['confusion']['escape_cleared']}/{s['escapes']} escapes cleared")
+    print(f"wrote {out}/results.json, results.md (real data)")
+    return 0
+
+
+def cmd_simulate(a) -> int:
+    from . import simulate
+    ws = _ws(a)
+    r = simulate.simulate(ws, {"weeks": a.weeks, "replicates": a.replicates, "spot_rate": a.spot_rate})
+    out = simulate.write(ws, r, simulate.sensitivity(ws))
+    print(simulate.main_summary(r))
+    print(f"wrote {out}/results.json, sensitivity.json, trust_over_time.html (SIMULATED)")
     return 0
 
 
@@ -234,11 +256,17 @@ def parser() -> argparse.ArgumentParser:
     sp.add_argument("changes", nargs="+")
     sp.add_argument("--reviewer", required=True, choices=sorted(llm.PRESETS))
     sp.add_argument("--context-chars", type=int, default=None, help=f"context budget in characters (default {llm.DEFAULT_CONTEXT_CHARS})")
+    sp.add_argument("--from-raw", action="store_true", help="re-parse the saved raw response instead of calling the API")
     sp = add("adjudicate", cmd_adjudicate, "only if reviewers disagree: the adjudicator's rulings (advisory; never clears)")
     sp.add_argument("changes", nargs="+")
     sp.add_argument("--adjudicator", default=None, help="default: the mandate's adjudicator")
     add("costs", cmd_costs, "render docs/COSTS.md from measurement/costs.yaml")
     add("replay", cmd_replay, "run every change (incl. seeded mutants) and write measurement/results.{json,md}")
+    add("history", cmd_history, "route real upstream PRs from their diffs and compare with labelled escapes (measurement/history/)")
+    sp = add("simulate", cmd_simulate, "SIMULATED trust over time; writes measurement/simulation/")
+    sp.add_argument("--weeks", type=int, default=52)
+    sp.add_argument("--replicates", type=int, default=200)
+    sp.add_argument("--spot-rate", type=float, default=0.10)
     return ap
 
 

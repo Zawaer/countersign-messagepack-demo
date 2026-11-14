@@ -214,9 +214,9 @@ def review_problems(r, req_ids: list[str]) -> list[str]:
             continue
         p += _evidence_problems(v.get("evidence", []), f"requirement_verdicts[{i}]")
     for i, f in enumerate(r.get("findings", []) if isinstance(r.get("findings", []), list) else [None]):
-        if not isinstance(f, dict) or f.get("severity") not in SEVERITIES or f.get("category") not in CATEGORIES \
-                or not f.get("title") or not f.get("claim"):
-            p.append(f"findings[{i}] needs title, claim, severity in {sorted(SEVERITIES)}, category in {sorted(CATEGORIES)}")
+        # severity drives the tier, so it must be valid; category is only displayed (an unlisted one is kept as given)
+        if not isinstance(f, dict) or f.get("severity") not in SEVERITIES or not f.get("title") or not f.get("claim"):
+            p.append(f"findings[{i}] needs title, claim and severity in {sorted(SEVERITIES)}")
             continue
         p += _evidence_problems(f.get("evidence", []), f"findings[{i}]")
     for i, x in enumerate(r.get("refusals", []) if isinstance(r.get("refusals", []), list) else [None]):
@@ -476,16 +476,21 @@ def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict |
         folder = ws.inputs / "reviews" / change
         _save_raw(folder, reviewer, cfg, system, user, log, {"prompt_version": REVIEW_PROMPT, "started": started})
         _log_costs(ws, cfg, change, f"review {change} ({reviewer}, {REVIEW_PROMPT})", log)
+    return _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, [r.usage for r in log], started)
+
+
+def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: list[dict], started, extra_runner=None) -> Path:
     review = {
         "reviewer": reviewer, "model": cfg.model, "vendor": cfg.vendor, "prompt_version": REVIEW_PROMPT, "reviewed_at": started,
         "inputs": ctx["inputs"], "not_given": ctx["not_given"],
         "runner": {"tool": "countersign review-llm", "endpoint": cfg.base_url, "self_hostable": bool(reg.get("self_hostable")),
-                   "calls": len(log), "json_repaired": repaired, "raw": f"reviews/{change}/raw/{reviewer}.response.json",
-                   "usage": {k: sum(r.usage.get(k, 0) for r in log) for k in ("prompt_tokens", "completion_tokens")}},
+                   "calls": len(usage), "json_repaired": repaired, "raw": f"reviews/{change}/raw/{reviewer}.response.json",
+                   "usage": {k: sum(u.get(k, 0) for u in usage) for k in ("prompt_tokens", "completion_tokens")}, **(extra_runner or {})},
         "summary": str(parsed.get("summary", "")),
         "requirement_verdicts": [{"req": v["req"], "verdict": v["verdict"], "confidence_basis": str(v.get("confidence_basis", "")),
                                   "evidence": v.get("evidence", [])} for v in parsed["requirement_verdicts"]],
-        "findings": [{"id": str(f.get("id") or f"{reviewer[0].upper()}{i}"), **{k: f[k] for k in ("title", "severity", "category", "claim")},
+        "findings": [{"id": str(f.get("id") or f"{reviewer[0].upper()}{i}"), "title": f["title"], "severity": f["severity"],
+                      "category": str(f.get("category") or "correctness"), "claim": f["claim"],
                       "evidence": f.get("evidence", []), **({"suggested_fix": f["suggested_fix"]} if f.get("suggested_fix") else {})}
                      for i, f in enumerate(parsed.get("findings", []), 1)],
         "refusals": [{"topic": x["topic"], "reason": x["reason"], "who_should_decide": x.get("who_should_decide", "area owner")}
@@ -495,6 +500,34 @@ def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict |
     write_json(folder / f"{reviewer}.json", review)
     (folder / f"{reviewer}.md").write_text(review_markdown(review, change), encoding="utf-8")
     return folder / f"{reviewer}.json"
+
+
+def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, budget: int | None = None) -> Path:
+    """Re-parse a saved raw response (reviews/<n>/raw/<reviewer>.response.json) with the current parser, without calling
+    the API. For when the runner rejected an answer the engine could have used. The context is rebuilt and must hash
+    to the one that was sent, so the review's inputs/not_given are exactly what the model saw."""
+    env = os.environ if env is None else env
+    cfg = config(reviewer, env)
+    reg = check_allowed(ws, change, cfg, "reviewer")
+    raw = read_json(ws.inputs / "reviews" / change / "raw" / f"{reviewer}.response.json")
+    budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or DEFAULT_CONTEXT_CHARS)
+    ctx = build_review_context(ws, change, repo, budget)
+    system = (ws.root / "prompts" / f"{raw['prompt_version']}.md").read_text(encoding="utf-8")
+    user = ctx["text"] + "\nReturn only the JSON object described in the brief."
+    if sha256_hex((system + "\n" + user).encode()) != raw["context_sha256"]:
+        raise SystemExit("the rebuilt context does not match the one that was sent (different repo, budget or inputs)")
+    if raw.get("model") != cfg.model:
+        raise SystemExit(f"raw response is from {raw.get('model')}, not {cfg.model}")
+    for i, call in enumerate(raw["calls"]):  # the first answer that passes the current checks wins
+        msg = (call["response"].get("choices") or [{}])[0].get("message") or {}
+        try:
+            parsed = extract_json(msg.get("content") or "")
+        except ValueError:
+            continue
+        if not review_problems(parsed, ctx["req_ids"]):
+            return _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, i > 0, [c["usage"] for c in raw["calls"]], raw["started"],
+                                 {"reparsed_from_raw": f"call {i + 1} of {len(raw['calls'])}, re-parsed offline with the current parser"})
+    raise SystemExit("no saved answer passes the current checks")
 
 
 def review_markdown(r: dict, change: str) -> str:
