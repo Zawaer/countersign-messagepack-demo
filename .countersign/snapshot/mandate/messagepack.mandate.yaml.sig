@@ -1,7 +1,7 @@
 {
   "signer": "Toivo",
-  "sha256": "39cc2060685638e17d2ec6f88dac3ae55ad06a1c2c04534e37d57bc27aefbf81",
-  "version": "2",
-  "ts": "2026-11-13T23:42:58+00:00",
-  "sig": "QoEU2IDTqwS9TCEIMrEKfIEpkEOZZf5febZIJkgWmfsza2L1GOxq1pG58+MUcQHilIA/05vO9LrqHvPokELpAQ=="
+  "sha256": "4b247d4ec39413ddaa14bd2d73e7c55963b36a9526f70da5e2786e37b0ebff9e",
+  "version": "4",
+  "ts": "2026-11-14T03:40:18+00:00",
+  "sig": "aCE4JeT+LrDuJIhcNrvE8TZK+/l8p31iyslI4fjsmNiDGXK6b3i+2VfFj7aT4cZLecxVQnZeSt2q193s2I1eCg=="
 }

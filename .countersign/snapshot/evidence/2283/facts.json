@@ -332,6 +332,210 @@
       "new_warnings": [],
       "resolved_warnings": [],
       "base_warning_count": 1
+    },
+    {
+      "id": "repro.claude.C1",
+      "tool": "dotnet test (reviewer repro test copied into tests/MessagePack.SourceGenerator.Tests/CountersignRepro)",
+      "tool_version": "8.0.402",
+      "status": "pass",
+      "summary": "reproduced by the pipeline: failed on head (claim: failed), passed on base (claim: passed)",
+      "reviewer": "claude",
+      "finding": "C1",
+      "kind": "regression",
+      "claim": "With a generic class from a referenced assembly closed over an app type that lacks [MessagePackObject] (Lib.Item<App.Foo>), base reports MsgPack003 and head reports nothing: the new location filter drops it.",
+      "supports": [
+        "REQ-2283-N1"
+      ],
+      "repro": "evidence/repros/2283/C1/",
+      "test_file": "evidence/repros/2283/C1/ReproClaude2283C1Tests.cs",
+      "test_file_sha256": "1c94fb7c99155da612809d0626434173537ce292dc73ac6b2db27e33fa3c5a9e",
+      "filter": "FullyQualifiedName~ReproClaude2283C1Tests",
+      "runs": [
+        {
+          "label": "head",
+          "rev": "head",
+          "expect": "failed",
+          "why": "the change drops MsgPack003 (the defect)",
+          "sha": "9df83c38409c8bfad0517aebffe48211eda4a5b4",
+          "build": "pass",
+          "log": [
+            "evidence/2283/logs/repro.claude.C1.head.build.log",
+            "evidence/2283/logs/repro.claude.C1.head.test.log"
+          ],
+          "outcome": "failed",
+          "as_expected": true,
+          "duration_s": 7.0,
+          "tests": [
+            {
+              "name": "ReproClaude2283C1Tests.MsgPack003IsReportedForAppTypeArgumentOfGenericFromReferencedAssembly",
+              "outcome": "failed",
+              "error": "expected MsgPack003 (App.Foo is used through Lib.Item<Foo>.Content but lacks [MessagePackObject]); analyzer reported: (no diagnostics)"
+            }
+          ]
+        },
+        {
+          "label": "base",
+          "rev": "base",
+          "expect": "passed",
+          "why": "base reports MsgPack003, so this is a regression",
+          "sha": "32258fdbee4bcd653c79f51b4376b5103c6f4d27",
+          "build": "pass",
+          "log": [
+            "evidence/2283/logs/repro.claude.C1.base.build.log",
+            "evidence/2283/logs/repro.claude.C1.base.test.log"
+          ],
+          "outcome": "passed",
+          "as_expected": true,
+          "duration_s": 8.0,
+          "tests": [
+            {
+              "name": "ReproClaude2283C1Tests.MsgPack003IsReportedForAppTypeArgumentOfGenericFromReferencedAssembly",
+              "outcome": "passed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "injection_scan",
+      "tool": "countersign.injection (deterministic pattern scan)",
+      "tool_version": "injection-v1",
+      "status": "pass",
+      "summary": "no text addressed to automated reviewers in the added lines, commit message or PR text",
+      "scanned": {
+        "diff_added_lines": 225,
+        "files": 4,
+        "commit_message": true,
+        "pr_text": false
+      },
+      "patterns": [
+        "addressed_to_ai",
+        "override_instructions",
+        "verdict_steering",
+        "claimed_approval",
+        "role_play",
+        "lgtm",
+        "hidden_unicode"
+      ],
+      "matches": [],
+      "sources": {
+        "diff": "git diff 32258fdb 9df83c38 (added lines only)",
+        "commit_message": "facts.commit_message",
+        "pr_text": "none: the change has no pull request text"
+      }
+    },
+    {
+      "id": "deps.delta",
+      "tool": "dotnet restore (every *.csproj, NuGet Audit mode=all) -> CycloneDX 1.6, base vs head",
+      "status": "pass",
+      "summary": "238 packages on head (238 on base) across 30 projects; 0 added, 0 version changes, 0 removed; 0 new vulnerability hits (6 already on base)",
+      "fail_reasons": [],
+      "policy": {
+        "allowed_new_dependencies": [],
+        "fail_on": [
+          "package or version not on base and not allowed",
+          "new package feed",
+          "vulnerability not on base",
+          "project that fails to restore on head only"
+        ]
+      },
+      "new_or_changed": [],
+      "packages_added": [],
+      "versions_changed": [],
+      "packages_removed": [],
+      "projects_added": [],
+      "projects_removed": [],
+      "direct_references_added": [],
+      "project_references_added": [],
+      "build_inputs_changed": {},
+      "vulnerabilities_new": [],
+      "vulnerabilities_also_on_base": [
+        {
+          "package": "Microsoft.NETCore.Jit",
+          "version": "1.0.2",
+          "severity": "high",
+          "advisory": "https://github.com/advisories/GHSA-xcvr-qv8h-m7xw",
+          "nuget_code": "NU1903",
+          "projects": [
+            "sandbox/Sandbox/Sandbox.csproj",
+            "tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Packaging",
+          "version": "6.8.0",
+          "severity": "critical",
+          "advisory": "https://github.com/advisories/GHSA-68w7-72jg-6qpp",
+          "nuget_code": "NU1904",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Packaging",
+          "version": "6.8.0",
+          "severity": "low",
+          "advisory": "https://github.com/advisories/GHSA-g4vj-cjjj-v7hg",
+          "nuget_code": "NU1901",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Protocol",
+          "version": "6.8.0",
+          "severity": "low",
+          "advisory": "https://github.com/advisories/GHSA-g4vj-cjjj-v7hg",
+          "nuget_code": "NU1901",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "System.Formats.Asn1",
+          "version": "6.0.0",
+          "severity": "high",
+          "advisory": "https://github.com/advisories/GHSA-447r-wph3-92pm",
+          "nuget_code": "NU1903",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "System.Text.Encodings.Web",
+          "version": "4.5.0",
+          "severity": "critical",
+          "advisory": "https://github.com/advisories/GHSA-ghhp-997w-qr28",
+          "nuget_code": "NU1904",
+          "projects": [
+            "src/MessagePack.AspNetCoreMvcFormatter/MessagePack.AspNetCoreMvcFormatter.csproj"
+          ]
+        }
+      ],
+      "projects_not_restored": [],
+      "restore_errors": {
+        "sandbox/TestData.InvalidProject/TestData.InvalidProject.csproj": [
+          "NU1010: The PackageReference items MessagePack;System.Threading.Tasks.Extensions;System.ValueTuple do not have corresponding PackageVersion."
+        ],
+        "sandbox/TestData.InvalidSyntax/TestData.InvalidSyntax.csproj": [
+          "NU1010: The PackageReference items MessagePack;System.Threading.Tasks.Extensions;System.ValueTuple do not have corresponding PackageVersion."
+        ]
+      },
+      "restore_errors_not_on_base": {},
+      "counts": {
+        "base_packages": 238,
+        "head_packages": 238,
+        "base_projects": 30,
+        "head_projects": 30
+      },
+      "tool_version": "8.0.402",
+      "sbom": {
+        "base": "evidence/base/sbom.cdx.json",
+        "head": "evidence/2283/sbom.cdx.json",
+        "base_serial": "urn:uuid:fb46c0d0-9d66-5c14-8bd5-bab30ed80b76",
+        "head_serial": "urn:uuid:1c584500-fc86-5ed2-8730-543a3706b0df"
+      },
+      "scope": "all 30 *.csproj in the tree (src, tests, sandbox, benchmark), restored as one throwaway solution; the graph is NuGet's restore output (obj/**/project.assets.json)"
     }
   ],
   "not_run": [

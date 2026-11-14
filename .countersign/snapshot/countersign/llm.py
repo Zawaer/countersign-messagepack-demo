@@ -29,7 +29,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from . import costs, decide as decide_mod, mandate as mandate_mod
-from .common import Workspace, is_mutant, read_json, sha256_hex, write_json
+from .common import Workspace, base_change, is_mutant, read_json, sha256_hex, write_json
 
 REVIEW_PROMPT = "review-v1"
 ADJUDICATE_PROMPT = "adjudicate-v1"
@@ -317,7 +317,85 @@ def _compact_facts(facts: dict) -> dict:
     return f
 
 
-def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DEFAULT_CONTEXT_CHARS) -> dict:
+# --- seeded changes (mutants, planted injections) ----------------------------------------------------
+
+BLIND_FORBIDDEN = ("mut", "mutant", "mutation", "inject", "seeded", "canary")
+LEAK = re.compile(r"\b(?:mut|mutant|mutation|inject|seeded|canary)\b", re.I)
+
+
+def _mutated_tree(repo: str, head: str, mut: dict) -> tuple[str, bool]:
+    """The head tree with the seeded one-line edit applied (the same replay as verify.Verifier._apply_mutation), as a
+    git tree id, so `git diff base <tree>` and `git show <tree>:path` give exactly what a reviewer of that PR would see.
+    Returns (tree, neutralized): a seeding note in the edit (e.g. "// (mutant: continue removed)") is reduced to its
+    code part, so the model is not told the change was seeded; the line count, and so every line number, is unchanged."""
+    path, n = mut["file"], int(mut["line"]) - 1
+    raw = subprocess.run(["git", "-C", repo, "show", f"{head}:{path}"], capture_output=True, check=True).stdout
+    bom = raw.startswith(b"\xef\xbb\xbf")
+    lines = raw[3 if bom else 0:].decode("utf-8").split("\n")
+    cr = "\r" if lines[n].endswith("\r") else ""
+    line = lines[n][:-1] if cr else lines[n]
+    before, after = mut.get("before") or "", mut.get("after") or ""
+    if before and before not in line:
+        raise SystemExit(f"seeded edit does not apply: {path}:{n + 1} does not contain the recorded `before` text")
+    new = line.replace(before, after) if before else after
+    neutral = LEAK.search(new) is None
+    if not neutral:  # drop a // comment that names the seeding; keep the code before it (or the indentation)
+        code, _, comment = new.partition("//")
+        if LEAK.search(code) or not LEAK.search(comment):
+            raise SystemExit(f"seeded edit at {path}:{n + 1} names the seeding outside a comment; cannot review it blind")
+        new = code.rstrip() if code.strip() else ""
+    lines[n] = new + cr
+    data = (b"\xef\xbb\xbf" if bom else b"") + "\n".join(lines).encode("utf-8")
+    env = {**os.environ, "GIT_INDEX_FILE": str(Path(repo) / ".git" / f"countersign-blind-{os.getpid()}.index")}
+    if not (Path(repo) / ".git").is_dir():  # worktree or bare: let git place the temporary index
+        gd = _git(repo, "rev-parse", "--absolute-git-dir").strip()
+        env["GIT_INDEX_FILE"] = str(Path(gd) / f"countersign-blind-{os.getpid()}.index")
+
+    def g(*a, inp: bytes | None = None) -> str:
+        return subprocess.run(["git", "-C", repo, *a], input=inp, capture_output=True, check=True, env=env).stdout.decode().strip()
+    try:
+        blob = g("hash-object", "-w", "--stdin", inp=data)
+        g("read-tree", f"{head}^{{tree}}")
+        mode = g("ls-tree", head, "--", path).split()[0]
+        g("update-index", "--cacheinfo", f"{mode},{blob},{path}")
+        tree = g("write-tree")
+    finally:
+        Path(env["GIT_INDEX_FILE"]).unlink(missing_ok=True)
+    return tree, not neutral
+
+
+def _blind_facts(facts: dict, change: str, shown: str) -> dict:
+    """facts.json as the reviewer of the real PR would see it: no seeding record, the base change's id, no seeding words."""
+    f = {k: v for k, v in json.loads(json.dumps(facts)).items() if k not in ("mutation", "diff_note")}
+    f["change"] = shown
+
+    def clean(x):
+        if isinstance(x, dict):
+            return {k: clean(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [clean(v) for v in x]
+        if isinstance(x, str):
+            x = x.replace(f"evidence/{change}/", "")
+            x = re.sub(r"\s*\+ the seeded edit \(mutation\.after\)", "", x)
+            return x
+        return x
+    f = clean(f)
+    for c in f.get("checks", []):  # a check inherited from the original (fail-without-fix) is shown as this PR's own run
+        if c.pop("inherited_from", None) is not None:
+            c.pop("note", None)
+    for r in f.get("not_run", []):
+        if LEAK.search(r.get("reason", "")):
+            r["reason"] = "not run for this revision (build, targeted tests, full suite and injection_scan ran)"
+    return f
+
+
+def _recount(diff: str) -> tuple[int, int]:
+    ins = sum(1 for x in diff.splitlines() if x.startswith("+") and not x.startswith("+++"))
+    dels = sum(1 for x in diff.splitlines() if x.startswith("-") and not x.startswith("---"))
+    return ins, dels
+
+
+def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DEFAULT_CONTEXT_CHARS, blind: bool = True) -> dict:
     """Everything the reviewer sees, as one text, plus the list of what it did not get.
 
     Priority under the character budget: requirements, issue, facts, diff of non-generated files (always); then head
@@ -328,6 +406,16 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
     reqs = ws.requirements(change)
     req_path = Path(reqs["_path"]) if Path(reqs["_path"]).is_absolute() else ws.root / reqs["_path"]
     base, head = facts.get("base_full") or facts["base"], facts.get("head_full") or facts["head"]
+    # A seeded change is the branch head plus one recorded edit: diff and show the edited tree, never the record.
+    mut = facts.get("mutation") if is_mutant(change) else None
+    head_rev, neutralized, shown = head, False, change
+    if mut and mut.get("file") and mut.get("line"):
+        if _git(repo, "cat-file", "-e", f"{head}^{{commit}}") is None:
+            raise SystemExit(f"{repo} does not have head {head}: clone/fetch the challenge repo (--repo)")
+        head_rev, neutralized = _mutated_tree(repo, head, mut)
+    if mut is not None and blind:
+        shown = base_change(change)
+        facts = _blind_facts(facts, change, shown)
     files = facts.get("diff", {}).get("by_file", [])
     generated = [f for f in files if f.get("kind") == "generated"]
     normal = [f for f in files if f.get("kind") != "generated"]
@@ -335,11 +423,19 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
 
     req_text = req_path.read_text(encoding="utf-8")
     facts_text = json.dumps(_compact_facts(facts), indent=1, ensure_ascii=False)
-    diffs = {f["path"]: (_git(repo, "diff", base, head, "--", f["path"]) or "") for f in normal}
+    diffs = {f["path"]: (_git(repo, "diff", base, head_rev, "--", f["path"]) or "") for f in normal}
     if any(v == "" for v in diffs.values()) and _git(repo, "cat-file", "-e", f"{head}^{{commit}}") is None:
         raise SystemExit(f"{repo} does not have head {head}: clone/fetch the challenge repo (--repo)")
+    if mut and mut.get("file") in diffs:  # the line counts describe the branch; recount the edited file
+        for f in files:
+            if f["path"] == mut["file"]:
+                f["ins"], f["del"] = _recount(diffs[f["path"]])
+        if "insertions" in facts.get("diff", {}):
+            facts["diff"]["insertions"] = sum(int(f.get("ins", 0)) for f in files)
+            facts["diff"]["deletions"] = sum(int(f.get("del", 0)) for f in files)
+        facts_text = json.dumps(_compact_facts(facts), indent=1, ensure_ascii=False)
     head_section = [
-        f"# Change {change}: branch {facts.get('branch')}, base {base}, head {head}",
+        f"# Change {shown}: branch {facts.get('branch')}, base {base}, head {head}",
         f"Commit message: {facts.get('commit_message')}",
         f"Upstream issue: {reqs.get('source')}",
         "", f"## Requirement set ({reqs['_path']})", "```yaml", req_text.strip(), "```",
@@ -368,7 +464,7 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
     texts: dict[tuple[str, str], tuple[str, str]] = {}
     for f, rev in wanted:
         sha = head if rev == "head" else base
-        text = _git(repo, "show", f"{sha}:{f['path']}")
+        text = _git(repo, "show", f"{head_rev if rev == 'head' else base}:{f['path']}")
         if text is None:
             if rev == "head":
                 not_given.append(f"{f['path']} at head (not readable)")
@@ -398,10 +494,22 @@ def build_review_context(ws: Workspace, change: str, repo: str, budget: int = DE
     text = fixed + "\n## File contents (line numbers in the gutter; quote the text after '| ')\n\n" + "\n".join(blocks.values())
     text += "\n## What you did NOT get (refuse anything that depends on it)\n" + "\n".join(f"- {x}" for x in not_given) + "\n"
     inputs = [f"requirements: {reqs['_path']}", f"issue: {reqs.get('source')}", f"facts: evidence/{change}/facts.json",
-              f"diff {base[:8]}..{head[:8]} ({len(normal)} non-generated files)",
+              f"diff {base[:8]}..{head[:8]} ({len(normal)} non-generated files)"
+              + (f" plus recorded edit at {mut['file']}:{mut['line']} (tree {head_rev[:8]})" if mut and head_rev != head else ""),
               f"file contents: {len(blocks)} blocks", f"context: {len(text)} chars (budget {budget})"]
+    seeded = None
+    if mut is not None:
+        cat = ws.root / "measurement" / "mutants" / "mutants.json"
+        kind = mut.get("kind") or next((m.get("kind") for m in (read_json(cat).get("mutants", []) if cat.exists() else [])
+                                        if m.get("id") == change), None)
+        seeded = {"change": change, "shown_as": shown, "blind": blind, "kind": kind, "file": mut.get("file"),
+                  "line": mut.get("line"), "mutated_tree": head_rev, "seeding_note_removed_from_line": neutralized}
+        if blind:
+            leaks = sorted({m.group(0) for m in LEAK.finditer(text)} | ({change} if change in text else set()))
+            if leaks:
+                raise SystemExit(f"refused: the blind context for {change} would reveal it is seeded ({', '.join(leaks)}); nothing sent")
     return {"text": text, "inputs": inputs, "not_given": not_given, "req_ids": [r["id"] for r in reqs.get("requirements", [])],
-            "chars": len(text)}
+            "chars": len(text), "seeded": seeded}
 
 
 # --- policy checks -----------------------------------------------------------------------------
@@ -456,16 +564,17 @@ def _save_raw(folder: Path, stem: str, cfg: LLMConfig, system: str, user: str, l
 # --- review-llm ---------------------------------------------------------------------------------
 
 def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, post=urllib_post,
-               sleep=time.sleep, when: datetime | None = None, budget: int | None = None) -> Path:
+               sleep=time.sleep, when: datetime | None = None, budget: int | None = None, blind: bool = True) -> Path:
+    """Seeded changes (<n>-mutK, <n>-inject) are reviewed as the PR a reviewer would see: the branch diff with the
+    seeded edit applied, the base change's requirements and id, and (blind, the default) nothing that says it is seeded.
+    Which seeded change it was is stamped into runner.seeded, never sent."""
     env = os.environ if env is None else env
-    if is_mutant(change):
-        raise SystemExit("review-llm reviews real branches; seeded mutants are uncommitted edits it cannot diff")
     cfg = config(reviewer, env)
     reg = check_allowed(ws, change, cfg, "reviewer")
     if not cfg.api_key:
         raise SystemExit(f"no API key for {reviewer}: set {PRESETS[reviewer]['key_env']} (a CI secret; never commit it)")
     budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or DEFAULT_CONTEXT_CHARS)
-    ctx = build_review_context(ws, change, repo, budget)
+    ctx = build_review_context(ws, change, repo, budget, blind=blind)
     system = (ws.root / "prompts" / f"{REVIEW_PROMPT}.md").read_text(encoding="utf-8")
     user = ctx["text"] + "\nReturn only the JSON object described in the brief."
     log: list[ChatResult] = []
@@ -474,7 +583,8 @@ def run_review(ws: Workspace, change: str, reviewer: str, repo: str, env: dict |
         parsed, repaired = ask_json(ChatClient(cfg, post, sleep), system, user, lambda r: review_problems(r, ctx["req_ids"]), log)
     finally:
         folder = ws.inputs / "reviews" / change
-        _save_raw(folder, reviewer, cfg, system, user, log, {"prompt_version": REVIEW_PROMPT, "started": started})
+        _save_raw(folder, reviewer, cfg, system, user, log, {"prompt_version": REVIEW_PROMPT, "started": started,
+                                                             **({"seeded": ctx["seeded"]} if ctx.get("seeded") else {})})
         _log_costs(ws, cfg, change, f"review {change} ({reviewer}, {REVIEW_PROMPT})", log)
     return _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, [r.usage for r in log], started)
 
@@ -485,7 +595,8 @@ def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: 
         "inputs": ctx["inputs"], "not_given": ctx["not_given"],
         "runner": {"tool": "countersign review-llm", "endpoint": cfg.base_url, "self_hostable": bool(reg.get("self_hostable")),
                    "calls": len(usage), "json_repaired": repaired, "raw": f"reviews/{change}/raw/{reviewer}.response.json",
-                   "usage": {k: sum(u.get(k, 0) for u in usage) for k in ("prompt_tokens", "completion_tokens")}, **(extra_runner or {})},
+                   "usage": {k: sum(u.get(k, 0) for u in usage) for k in ("prompt_tokens", "completion_tokens")},
+                   **({"seeded": ctx["seeded"]} if ctx.get("seeded") else {}), **(extra_runner or {})},
         "summary": str(parsed.get("summary", "")),
         "requirement_verdicts": [{"req": v["req"], "verdict": v["verdict"], "confidence_basis": str(v.get("confidence_basis", "")),
                                   "evidence": v.get("evidence", [])} for v in parsed["requirement_verdicts"]],
@@ -493,8 +604,12 @@ def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: 
                       "category": str(f.get("category") or "correctness"), "claim": f["claim"],
                       "evidence": f.get("evidence", []), **({"suggested_fix": f["suggested_fix"]} if f.get("suggested_fix") else {})}
                      for i, f in enumerate(parsed.get("findings", []), 1)],
-        "refusals": [{"topic": x["topic"], "reason": x["reason"], "who_should_decide": x.get("who_should_decide", "area owner")}
+        "refusals": [{"topic": x["topic"], "reason": x["reason"], "who_should_decide": x.get("who_should_decide", "area owner"),
+                      **({"req": str(x["req"])} if x.get("req") else {}), **({"blocking": True} if x.get("blocking") is True else {})}
                      for x in parsed.get("refusals", [])],
+        # closes an earlier pass's finding only with verified evidence at the same location (decide.carry_forward)
+        "refutations": [{"finding": str(x.get("finding", "")), "reason": str(x.get("reason", "")), "evidence": x.get("evidence", [])}
+                        for x in parsed.get("refutations", []) if isinstance(x, dict)] if isinstance(parsed.get("refutations"), list) else [],
     }
     folder = ws.inputs / "reviews" / change
     write_json(folder / f"{reviewer}.json", review)
@@ -502,7 +617,8 @@ def _write_review(ws, change, reviewer, cfg, reg, ctx, parsed, repaired, usage: 
     return folder / f"{reviewer}.json"
 
 
-def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, budget: int | None = None) -> Path:
+def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: dict | None = None, budget: int | None = None,
+                    blind: bool = True) -> Path:
     """Re-parse a saved raw response (reviews/<n>/raw/<reviewer>.response.json) with the current parser, without calling
     the API. For when the runner rejected an answer the engine could have used. The context is rebuilt and must hash
     to the one that was sent, so the review's inputs/not_given are exactly what the model saw."""
@@ -511,7 +627,7 @@ def review_from_raw(ws: Workspace, change: str, reviewer: str, repo: str, env: d
     reg = check_allowed(ws, change, cfg, "reviewer")
     raw = read_json(ws.inputs / "reviews" / change / "raw" / f"{reviewer}.response.json")
     budget = budget or int(env.get("COUNTERSIGN_CONTEXT_CHARS") or DEFAULT_CONTEXT_CHARS)
-    ctx = build_review_context(ws, change, repo, budget)
+    ctx = build_review_context(ws, change, repo, budget, blind=(raw.get("seeded") or {}).get("blind", blind))
     system = (ws.root / "prompts" / f"{raw['prompt_version']}.md").read_text(encoding="utf-8")
     user = ctx["text"] + "\nReturn only the JSON object described in the brief."
     if sha256_hex((system + "\n" + user).encode()) != raw["context_sha256"]:
@@ -548,20 +664,33 @@ def review_markdown(r: dict, change: str) -> str:
 
 # --- adjudicate ---------------------------------------------------------------------------------
 
-def _code_excerpt(repo: str, facts: dict, e: dict, pad: int = 8) -> str | None:
+def _code_excerpt(repo: str, facts: dict, e: dict, pad: int = 8, base_context: set[str] | frozenset = frozenset()) -> str | None:
+    """Code around a cited line, for the adjudicator. Evidence is model-written, so the same rules as verify.Verifier.code:
+    rev must be head or base (never a model-supplied revision), the path a relative path in the change's diff (or, at
+    base, a base_context file), and git gets --end-of-options. Anything else gets no excerpt."""
     if e.get("kind") != "code":
         return None
-    rev = e.get("rev", "head")
-    sha = facts.get(f"{rev}_full") or facts.get(rev) if rev in ("head", "base") else rev
-    text = _git(repo, "show", f"{sha}:{e.get('file', '')}")
+    rev, path = e.get("rev", "head"), e.get("file", "")
+    if rev not in ("head", "base"):
+        return None
+    if not isinstance(path, str) or not path or path.startswith(("-", "/")) or ".." in path.split("/") or "\\" in path:
+        return None
+    if path not in {f["path"] for f in facts.get("diff", {}).get("by_file", [])} and not (rev == "base" and path in base_context):
+        return None
+    sha = facts.get(f"{rev}_full") or facts.get(rev)
+    if not isinstance(sha, str) or not sha or sha.startswith("-"):
+        return None
+    text = _git(repo, "show", "--end-of-options", f"{sha}:{path}")
     if text is None:
         return None
-    line = int(e.get("line") or 0)
+    line = e.get("line")
+    line = line if isinstance(line, int) and not isinstance(line, bool) else 0
     return _numbered(text, [(line - pad, line + pad)])
 
 
 def build_adjudication_context(ws: Workspace, change: str, pack: dict, disputes: list[dict], repo: str) -> str:
     facts = read_json(ws.facts_path(change))
+    bc = set(mandate_mod.load(ws)["decision"].get("base_context_files", []) or [])
     items = []
     for d in disputes:
         sides = []
@@ -570,7 +699,7 @@ def build_adjudication_context(ws: Workspace, change: str, pack: dict, disputes:
             for e in s["evidence"]:
                 x = {k: v for k, v in e.items() if k not in ("verified", "note")}
                 x["engine_verified"], x["engine_note"] = e.get("verified"), e.get("note")
-                ex = _code_excerpt(repo, facts, e)
+                ex = _code_excerpt(repo, facts, e, base_context=bc)
                 if ex:
                     x["code_around_cited_line"] = ex
                 ev.append(x)
@@ -635,7 +764,7 @@ def _disputes_with_sides(ws: Workspace, change: str) -> list[dict]:
     facts = read_json(ws.facts_path(change))
     reqs = ws.requirements(change)
     panel = m.panel([a["name"] for a in decide_mod.touched_areas(facts, m)])
-    v = verify.Verifier(ws.repo, facts, reqs, m["decision"]["code_line_tolerance"])
+    v = verify.Verifier(ws.repo, facts, reqs, m["decision"]["code_line_tolerance"], m["decision"].get("base_context_files", []))
     reviews = {n: verify.verify_review(r, v) for n, r in ws.reviews(change).items() if n in panel["reviewers"]}
     d = decide_mod.decide(facts, reviews, reqs, m, mandate_mod.signature_status(ws, m), trust.caps(trust.derive(m, ledger.read(ws))), panel)
     return d["disputes"]

@@ -6,9 +6,17 @@ official: false
 requirements:
   - id: REQ-2234-F1
     type: functional
+    # tests: the tests that exercise this clause; held_before is judged on their fail-without-fix outcomes.
+    # The four *WithoutAnalyzerFailure tests belong to N1 (no crash): without the fix they still report the
+    # contract diagnostic (MsgPack005) and fail only on the extra AD0001 analyzer crash (evidence/2234/facts.json).
+    tests:
+      - SuppressSourceGenerationAnalyzerTests.MemberWithoutKeyIsReported
+      - SuppressSourceGenerationAnalyzerTests.MemberTypeMustBeMessagePackObjectIsReported
+      - SuppressSourceGenerationAnalyzerTests.AllowPrivateRequiredIsReported
     text: "The analyzer must report contract diagnostics (e.g. missing [Key], duplicate keys, mixed key kinds) for [MessagePackObject(SuppressSourceGeneration = true)] types, as it did in version 3.1.0."
   - id: REQ-2234-F2
     type: functional
+    tests: [SuppressSourceGenerationAnalyzerTests.SourceGenerationOnlyDiagnosticsAreNotReportedWhenSuppressed]
     text: "Diagnostics that only apply when a formatter is generated (partial-class requirement, AOT-only checks) must not be reported for types with SuppressSourceGeneration = true."
   - id: REQ-2234-N1
     type: non-functional

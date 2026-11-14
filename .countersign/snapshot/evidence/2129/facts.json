@@ -557,6 +557,179 @@
       "tool": "grep MessagePack.sln",
       "status": "fail",
       "summary": "new project tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj is not added to MessagePack.sln (only referenced from ExecutionTests.csproj)"
+    },
+    {
+      "id": "injection_scan",
+      "tool": "countersign.injection (deterministic pattern scan)",
+      "tool_version": "injection-v1",
+      "status": "pass",
+      "summary": "no text addressed to automated reviewers in the added lines, commit message or PR text",
+      "scanned": {
+        "diff_added_lines": 1034,
+        "files": 28,
+        "commit_message": true,
+        "pr_text": false
+      },
+      "patterns": [
+        "addressed_to_ai",
+        "override_instructions",
+        "verdict_steering",
+        "claimed_approval",
+        "role_play",
+        "lgtm",
+        "hidden_unicode"
+      ],
+      "matches": [],
+      "sources": {
+        "diff": "git diff 32258fdb 083afd99 (added lines only)",
+        "commit_message": "facts.commit_message",
+        "pr_text": "none: the change has no pull request text"
+      }
+    },
+    {
+      "id": "deps.delta",
+      "tool": "dotnet restore (every *.csproj, NuGet Audit mode=all) -> CycloneDX 1.6, base vs head",
+      "status": "pass",
+      "summary": "238 packages on head (238 on base) across 31 projects; 0 added, 0 version changes, 0 removed; new project(s): tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj; 4 new direct reference(s) to packages already in the graph; 0 new vulnerability hits (6 already on base)",
+      "fail_reasons": [],
+      "policy": {
+        "allowed_new_dependencies": [],
+        "fail_on": [
+          "package or version not on base and not allowed",
+          "new package feed",
+          "vulnerability not on base",
+          "project that fails to restore on head only"
+        ]
+      },
+      "new_or_changed": [],
+      "packages_added": [],
+      "versions_changed": [],
+      "packages_removed": [],
+      "projects_added": [
+        "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj"
+      ],
+      "projects_removed": [],
+      "direct_references_added": [
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "package": "CSharpIsNullAnalyzer",
+          "requested": "[0.1.593, )",
+          "new_project": true
+        },
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "package": "Nerdbank.GitVersioning",
+          "requested": "[3.6.143, )",
+          "new_project": true
+        },
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "package": "Nullable",
+          "requested": "[1.3.1, )",
+          "new_project": true
+        },
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj",
+          "package": "StyleCop.Analyzers.Unstable",
+          "requested": "[1.2.0.556, )",
+          "new_project": true
+        }
+      ],
+      "project_references_added": [
+        {
+          "project": "tests/MessagePack.SourceGenerator.ExecutionTests/MessagePack.SourceGenerator.ExecutionTests.csproj",
+          "references": "tests/MessagePack.SourceGenerator.ExternalTypes/MessagePack.SourceGenerator.ExternalTypes.csproj"
+        }
+      ],
+      "build_inputs_changed": {},
+      "vulnerabilities_new": [],
+      "vulnerabilities_also_on_base": [
+        {
+          "package": "Microsoft.NETCore.Jit",
+          "version": "1.0.2",
+          "severity": "high",
+          "advisory": "https://github.com/advisories/GHSA-xcvr-qv8h-m7xw",
+          "nuget_code": "NU1903",
+          "projects": [
+            "sandbox/Sandbox/Sandbox.csproj",
+            "tests/MessagePack.GeneratedCode.Tests/MessagePack.GeneratedCode.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Packaging",
+          "version": "6.8.0",
+          "severity": "critical",
+          "advisory": "https://github.com/advisories/GHSA-68w7-72jg-6qpp",
+          "nuget_code": "NU1904",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Packaging",
+          "version": "6.8.0",
+          "severity": "low",
+          "advisory": "https://github.com/advisories/GHSA-g4vj-cjjj-v7hg",
+          "nuget_code": "NU1901",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "NuGet.Protocol",
+          "version": "6.8.0",
+          "severity": "low",
+          "advisory": "https://github.com/advisories/GHSA-g4vj-cjjj-v7hg",
+          "nuget_code": "NU1901",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "System.Formats.Asn1",
+          "version": "6.0.0",
+          "severity": "high",
+          "advisory": "https://github.com/advisories/GHSA-447r-wph3-92pm",
+          "nuget_code": "NU1903",
+          "projects": [
+            "tests/MessagePack.SourceGenerator.Tests/MessagePack.SourceGenerator.Tests.csproj"
+          ]
+        },
+        {
+          "package": "System.Text.Encodings.Web",
+          "version": "4.5.0",
+          "severity": "critical",
+          "advisory": "https://github.com/advisories/GHSA-ghhp-997w-qr28",
+          "nuget_code": "NU1904",
+          "projects": [
+            "src/MessagePack.AspNetCoreMvcFormatter/MessagePack.AspNetCoreMvcFormatter.csproj"
+          ]
+        }
+      ],
+      "projects_not_restored": [],
+      "restore_errors": {
+        "sandbox/TestData.InvalidProject/TestData.InvalidProject.csproj": [
+          "NU1010: The PackageReference items MessagePack;System.Threading.Tasks.Extensions;System.ValueTuple do not have corresponding PackageVersion."
+        ],
+        "sandbox/TestData.InvalidSyntax/TestData.InvalidSyntax.csproj": [
+          "NU1010: The PackageReference items MessagePack;System.Threading.Tasks.Extensions;System.ValueTuple do not have corresponding PackageVersion."
+        ]
+      },
+      "restore_errors_not_on_base": {},
+      "counts": {
+        "base_packages": 238,
+        "head_packages": 238,
+        "base_projects": 30,
+        "head_projects": 31
+      },
+      "tool_version": "8.0.402",
+      "sbom": {
+        "base": "evidence/base/sbom.cdx.json",
+        "head": "evidence/2129/sbom.cdx.json",
+        "base_serial": "urn:uuid:fb46c0d0-9d66-5c14-8bd5-bab30ed80b76",
+        "head_serial": "urn:uuid:358d58a0-a562-52e2-bae8-0d4a6f031220"
+      },
+      "scope": "all 31 *.csproj in the tree (src, tests, sandbox, benchmark), restored as one throwaway solution; the graph is NuGet's restore output (obj/**/project.assets.json)"
     }
   ],
   "not_run": [

@@ -169,8 +169,8 @@ def simulate(ws: Workspace, cfg: dict | None = None) -> dict:
 
 
 def _mean(rows, key, a, b):
+    xs = [r[key] for r in rows[a:b]]
     return round(sum(xs) / len(xs), 2) if xs else None
-    return round(sum(xs) / len(xs), 2)
 
 
 def summary(r: dict) -> dict:

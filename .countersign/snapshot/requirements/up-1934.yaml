@@ -1,0 +1,18 @@
+# PLACEHOLDER derived from upstream PR #1934 ("#1926 follow-up") and issue #1925, for upstream PR #1934 (a merged,
+# human-written, test-only upstream change used as a low-risk control). Not a Tieto requirement set.
+change: "up-1934"
+branch: upstream PR #1934 (merge b06681ea; base = merge^1 7ef21d4b, head = merge^2 2f9324f9)
+source: https://github.com/MessagePack-CSharp/MessagePack-CSharp/issues/1925
+pull_request: https://github.com/MessagePack-CSharp/MessagePack-CSharp/pull/1934
+official: false
+requirements:
+  - id: REQ-up-1934-F1
+    type: functional
+    text: "By default, the source generator tests must compile the test input and the generated code at C# 7.3, the language version a netstandard2.0 project uses by default (issue #1925), so generated code that needs a newer language version fails the tests."
+  - id: REQ-up-1934-F2
+    type: functional
+    text: "Tests whose input source needs a newer language feature (records, record structs) must set that language version explicitly, and only those."
+  - id: REQ-up-1934-N1
+    type: non-functional
+    checks: [tests.full_suite]
+    text: "The change touches only test code, and no existing source generator test regresses."
